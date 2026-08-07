@@ -1,0 +1,40 @@
+# Copy to config.yaml and adjust paths. All values shown are the defaults.
+
+watcher:
+  input_root: "./input"
+  output_root: "./output"
+  qc_root: "./qc"        # per-file QC sidecars, mirrored tree, kept separate from output
+  failed_root: "./failed" # files that raised during processing are moved here (mirrored tree)
+  file_extensions: [".pdf"]
+  max_workers: 4          # keep low for GPU engines to avoid oversubscribing the GPU
+  ledger_path: "./state/ledger.sqlite3"
+  work_dir: "./state/work"
+
+engine:
+  primary: paddleocr        # tesseract | paddleocr | surya | abbyy
+  secondary: null          # GPU speed test: paddleocr-only, no CPU-bound tesseract cross-check
+  strategy: always_parallel # run secondary on every region regardless of primary confidence
+  low_confidence_word_threshold: 60.0
+  low_confidence_region_fraction: 0.15
+  engine_options:
+    paddleocr: { use_gpu: true }  # ai01 GPUs currently free (vLLM idle) — offload PaddleOCR to GPU (see docs/BENCHMARKS.md)
+
+fallback:
+  enabled: false
+  base_url: "http://ai01:11434/v1"   # local vLLM/Ollama OpenAI-compatible endpoint
+  api_key: "not-needed"
+  model: "qwen2-vl"
+  apply_as_text_layer: false          # (b) default: flag for human review, don't auto-graft LLM text
+  timeout_seconds: 120
+
+layout:
+  min_gap_fraction: 0.015
+  margin_max_width_fraction: 0.12
+  gap_density_threshold: 0.02
+
+preprocess:
+  deskew: false               # R6: non-destructive only, defaults off
+  contrast_normalize: false   # R6: non-destructive only, defaults off
+
+languages: ["eng", "deu", "fra"]
+log_level: "INFO"
