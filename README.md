@@ -93,3 +93,12 @@ build/deploy steps.
 - [docs/BENCHMARKS.md](docs/BENCHMARKS.md) — measured OCR quality and speed
   comparisons (Tesseract vs PaddleOCR, local CPU vs ai01 CPU vs ai01 GPU,
   81-file corpus dual-engine vs GPU-only speed/quality tradeoff).
+
+## Author & License
+
+Author: **fsaritome**
+
+Licensed under a custom non-commercial license — free to use, modify, and
+distribute for personal, educational, or research purposes only. Commercial
+use requires prior written permission from the author. See
+[LICENSE](LICENSE) for full terms.

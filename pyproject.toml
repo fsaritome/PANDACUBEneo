@@ -2,6 +2,8 @@
 name = "patent-ocr"
 version = "0.1.0"
 description = "Self-hosted hot-folder OCR pipeline for patent PDFs (searchable-PDF sandwich, no cloud APIs)"
+authors = [{ name = "fsaritome" }]
+license = { file = "LICENSE" }
 requires-python = ">=3.10"
 dependencies = [
     "watchdog>=4.0",
