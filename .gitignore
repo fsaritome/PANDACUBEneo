@@ -1,0 +1,24 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+state/
+input/
+output/
+qc/
+failed/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+dashboard_dist/
+*.tar.gz
+*.log
+
+# Real patent PDF test corpora - not for public distribution
+PDF STUFF/
+PDF_STUFF_2/
+
