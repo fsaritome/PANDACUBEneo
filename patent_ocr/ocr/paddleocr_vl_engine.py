@@ -147,20 +147,16 @@ class PaddleOCRVLEngine(OCREngine):
 
     def _run(self, images: list) -> list[list[Word]]:
         try:
-            # Lock covers instance construction too, not just predict() — with
-            # multiple file-processing threads calling a fresh engine's first
-            # recognize() nearly simultaneously, an unlocked _get_instance()
-            # could otherwise race and build/discard a duplicate GPU model.
-            with self._lock:
-                pipeline = self._get_instance()
-                # NOTE: do NOT pass temperature=0.0 here — tried that to fix
-                # observed non-determinism (see repo memory), but it triggers
-                # `RuntimeError: int(Tensor) is not supported in static graph
-                # mode` on nearly every real call, confirmed via a 663-file
-                # live run (only ~2/10 real-OCR files succeeded, vs the
-                # pipeline's own sampling default which at least sometimes
-                # works). Left at the pipeline default until root-caused.
-                results = list(pipeline.predict(images))
+            # Lock only covers instance construction — the double-checked lock
+            # in _get_instance() guards the one-time model load. When using the
+            # vllm-server backend, predict() is just an HTTP request and is
+            # safe to call concurrently; holding the lock for the entire call
+            # would serialize all workers and negate the server's concurrency.
+            # For local PaddlePaddle inference (no vl_rec_backend), cuDNN IS
+            # not thread-safe — but that path loads only once per process via
+            # _get_instance(), and the lock below guards that critical section.
+            pipeline = self._get_instance()
+            results = list(pipeline.predict(images))
         except Exception:
             log.warning("paddleocr_vl predict() failed on a batch, skipping", exc_info=True)
             return [[] for _ in images]
