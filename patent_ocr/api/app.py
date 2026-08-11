@@ -72,6 +72,7 @@ def health():
 
 @app.get("/api/status/live")
 def status_live():
+    cfg = _config()
     ledger = _ledger()
     counts = ledger.status_counts()
     processing = [
@@ -81,9 +82,20 @@ def status_live():
         }
         for r in ledger.processing_records()
     ]
+    # Count actual files in the input directory so the progress bar shows a
+    # stable denominator from the start, not one that grows as workers enqueue.
+    input_root = cfg.input_root
+    input_total = sum(
+        1 for ext in cfg.watcher.file_extensions
+        for _ in input_root.glob(f"**/*{ext}")
+    ) if input_root.exists() else 0
+    ledger_total = sum(counts.values())
+    # Use whichever is larger: input dir (before sweep completes) or ledger
+    # (after input files have been moved/processed and input dir is empty).
+    total = max(input_total, ledger_total)
     return {
         "status_counts": counts,
-        "total": sum(counts.values()),
+        "total": total,
         "processing": processing,
     }
 
