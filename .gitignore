@@ -22,3 +22,15 @@ dashboard_dist/
 PDF STUFF/
 PDF_STUFF_2/
 
+
+RENK/
+RENK_OUTPUT/
+STAND_DER_TECHNIK/
+STAND_DER_TECHNIK_OUTPUT/
+*.zip
+.venv_*/
+_bench_*.py
+_check_deps.py
+scp_stand_output.log
+
+renk_snapshot.tar

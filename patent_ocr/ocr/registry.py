@@ -8,8 +8,8 @@ from __future__ import annotations
 from patent_ocr.ocr.base import OCREngine
 
 _ENGINES: dict[str, str] = {
-    "tesseract": "patent_ocr.ocr.tesseract_engine.TesseractEngine",
     "paddleocr": "patent_ocr.ocr.paddleocr_engine.PaddleOCREngine",
+    "paddleocr_vl": "patent_ocr.ocr.paddleocr_vl_engine.PaddleOCRVLEngine",
     "surya": "patent_ocr.ocr.surya_engine.SuryaEngine",
     "abbyy": "patent_ocr.ocr.abbyy_engine.AbbyyEngine",
 }

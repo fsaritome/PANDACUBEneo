@@ -37,6 +37,9 @@ def process_file(input_file: Path, config: Config, config_path: str | None, ledg
 
     try:
         fully_native, _ = analyze_text_native(input_file)
+        if fully_native and config.watcher.disable_passthrough:
+            log.info("passthrough suppressed (disable_passthrough=True), forcing full OCR: %s", input_file)
+            fully_native = False
         if fully_native:
             # §5.4: already has a sane text layer — copy through, don't touch it.
             shutil.copy2(input_file, output_file)

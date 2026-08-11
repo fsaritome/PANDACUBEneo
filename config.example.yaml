@@ -11,12 +11,12 @@ watcher:
   work_dir: "./state/work"
 
 engine:
-  primary: tesseract        # tesseract | paddleocr | surya | abbyy
+  primary: paddleocr_vl     # paddleocr | paddleocr_vl | surya | abbyy
   secondary: null           # optional second engine for cross-checking
   strategy: single          # single | always_parallel | low_confidence_only
   low_confidence_word_threshold: 60.0
   low_confidence_region_fraction: 0.15
-  engine_options: {}        # per-engine kwargs, e.g. {paddleocr: {use_gpu: false}}
+  engine_options: {}        # per-engine kwargs, e.g. {paddleocr_vl: {use_gpu: false}}
 
 fallback:
   enabled: false
@@ -34,6 +34,7 @@ layout:
 preprocess:
   deskew: false               # R6: non-destructive only, defaults off
   contrast_normalize: false   # R6: non-destructive only, defaults off
+  max_page_megapixels: 40.0   # downscale giant pages before OCR to avoid pathological runtimes
 
 languages: ["eng", "deu", "fra"]
 log_level: "INFO"

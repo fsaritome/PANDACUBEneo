@@ -10,20 +10,20 @@ from langdetect.lang_detect_exception import LangDetectException
 # Deterministic results across runs (langdetect is otherwise seeded from clock time).
 DetectorFactory.seed = 0
 
-_ISO_TO_TESSERACT = {"en": "eng", "de": "deu", "fr": "fra"}
+_ISO_TO_ENGINE_LANG = {"en": "eng", "de": "deu", "fr": "fra"}
 
 
 def detect_languages_from_text(
     text: str, known_languages: list[str], min_probability: float = 0.15
 ) -> list[str]:
-    """Return tesseract-style 3-letter codes for languages detected in `text`,
-    above `min_probability`. Results are constrained to `known_languages` (the
-    tesseract codes this deployment is actually configured/installed for) —
-    `langdetect` can report any of ~55 ISO codes, and blindly passing an
-    unsupported/uninstalled one to tesseract crashes the OCR call outright.
-    Falls back to `known_languages` (or ['eng']) if detection fails, the text
-    is too short, or no candidate matches a known language — never returns an
-    empty list, since something must hint the OCR engine."""
+    """Return this pipeline's 3-letter language codes for languages detected in
+    `text`, above `min_probability`. Results are constrained to `known_languages`
+    (the codes this deployment is actually configured for) — `langdetect` can
+    report any of ~55 ISO codes, and blindly passing an unsupported one through
+    as a language hint can crash or degrade the OCR engine call. Falls back to
+    `known_languages` (or ['eng']) if detection fails, the text is too short, or
+    no candidate matches a known language — never returns an empty list, since
+    something must hint the OCR engine."""
     fallback = known_languages or ["eng"]
     text = text.strip()
     if len(text) < 8:
@@ -33,7 +33,7 @@ def detect_languages_from_text(
     except LangDetectException:
         return fallback
     codes = [
-        _ISO_TO_TESSERACT.get(c.lang, c.lang)
+        _ISO_TO_ENGINE_LANG.get(c.lang, c.lang)
         for c in candidates
         if c.prob >= min_probability
     ]
