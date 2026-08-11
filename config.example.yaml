@@ -6,7 +6,7 @@ watcher:
   qc_root: "./qc"        # per-file QC sidecars, mirrored tree, kept separate from output
   failed_root: "./failed" # files that raised during processing are moved here (mirrored tree)
   file_extensions: [".pdf"]
-  max_workers: 4          # keep low for GPU engines to avoid oversubscribing the GPU
+  max_workers: 8          # with vllm-server backend: workers handle layout+I/O; VLM concurrency is vl_rec_max_concurrency
   ledger_path: "./state/ledger.sqlite3"
   work_dir: "./state/work"
 
@@ -16,7 +16,10 @@ engine:
   strategy: single          # single | always_parallel | low_confidence_only
   low_confidence_word_threshold: 60.0
   low_confidence_region_fraction: 0.15
-  engine_options: {}        # per-engine kwargs, e.g. {paddleocr_vl: {use_gpu: false}}
+  engine_options: {}        # per-engine kwargs; for vllm-server backend use:
+                            # paddleocr_vl: { use_gpu: true, vl_rec_backend: vllm-server,
+                            #                vl_rec_server_url: http://localhost:8118/v1,
+                            #                vl_rec_max_concurrency: 8 }
 
 fallback:
   enabled: false

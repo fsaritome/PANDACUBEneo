@@ -22,7 +22,15 @@
    resurfaces in real usage — compare `generate_hocr()` vs `generate_pdf()`
    branch in `ocrmypdf_plugin.py` on an affected file.
 
-## Notes on setup
+## Pending improvements
+
+- **GPU split**: run layout model on GPU 1 (`gpu_id: 1` in engine_options) so
+  vLLM on GPU 0 has no contention. Currently both share GPU 0. Not yet tested
+  but the config knob (`gpu_id`) is already wired in `PaddleOCRVLEngine`.
+- **predict() lock removal benchmark**: with the lock removed from `predict()`
+  and `vl_rec_max_concurrency: 8`, the vLLM server was at ~26% GPU utilization
+  on the second RENK run (vs 0% previously). A full timing comparison vs the
+  first run (63m 9s, 8 workers serialized) is pending completion of that run.
 
 - Docker group membership: `sudo usermod -aG docker install`, then reconnect
 - genai client plugin: `pip install 'openai>=1.63'` in the pipeline venv

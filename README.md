@@ -15,9 +15,10 @@ python -m venv .venv
 .\.venv\Scripts\pip install -e .
 ```
 
-External dependencies (not pip-installable): [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki)
-and Ghostscript must be on `PATH` (used by OCRmyPDF). GPU engines (PaddleOCR,
-Surya) are optional extras: `pip install -e .[paddle]` / `.[surya]`.
+External dependencies (not pip-installable): Ghostscript must be on `PATH` (used
+by OCRmyPDF). On the GPU server (ai01) the primary OCR engine is PaddleOCR-VL-1.6
+served via the official Docker genai-vllm-server — see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+for setup. GPU extras: `pip install -e .[paddle]`.
 
 ## Configure
 
@@ -52,9 +53,11 @@ patent-ocr --config config.yaml report-flagged
 3. **Layout segmentation** (`layout/segmenter.py`) — heuristic column/margin
    detection *before* OCR, fixing reading order for the two-column-with-
    margin-line-numbers patent layout (the #1 accuracy risk).
-4. **OCR engines** (`ocr/`) — pluggable: Tesseract, PaddleOCR, Surya, ABBYY
-   (stub). Confidence-driven secondary-engine/LLM-fallback strategy in
-   `confidence.py` / `fallback/`.
+4. **OCR engines** (`ocr/`) — pluggable: PaddleOCR-VL (primary, VLM-based,
+   Docker vLLM backend), PaddleOCR (classic CRNN), Surya, ABBYY (stub).
+   `OCREngine.operates_on_full_page = True` signals page-level engines that
+   receive whole pages instead of pre-cropped regions. Confidence-driven
+   secondary-engine/LLM-fallback strategy in `confidence.py` / `fallback/`.
 5. **Reassembly + hOCR** (`reassembly.py`, `hocr.py`) — per-region reconciliation,
    final reading order, hOCR document build.
 6. **OCRmyPDF plugin** (`ocrmypdf_plugin.py`, `pdf_text_layer.py`) — OCRmyPDF
