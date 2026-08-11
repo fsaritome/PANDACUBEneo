@@ -57,6 +57,7 @@ class PaddleOCRVLEngine(OCREngine):
         # analysis model still runs locally, only VLM inference is offloaded.
         vl_rec_backend: str | None = None,
         vl_rec_server_url: str | None = None,
+        vl_rec_max_concurrency: int | None = None,
     ):
         self.use_gpu = use_gpu
         # gpu_id=None: let PADDLE_GPU_ID env var or CUDA_VISIBLE_DEVICES decide (set per-worker).
@@ -72,6 +73,7 @@ class PaddleOCRVLEngine(OCREngine):
         self.use_layout_detection = use_layout_detection
         self.vl_rec_backend = vl_rec_backend
         self.vl_rec_server_url = vl_rec_server_url
+        self.vl_rec_max_concurrency = vl_rec_max_concurrency
         self._instance = None
         # The pipeline (like most PaddleX/cuDNN-backed predictors) is not safe
         # to call concurrently from multiple threads on one shared instance —
@@ -112,6 +114,8 @@ class PaddleOCRVLEngine(OCREngine):
                 # layout analysis still runs locally on the client GPU.
                 kwargs["vl_rec_backend"] = self.vl_rec_backend
                 kwargs["vl_rec_server_url"] = self.vl_rec_server_url
+                if self.vl_rec_max_concurrency is not None:
+                    kwargs["vl_rec_max_concurrency"] = self.vl_rec_max_concurrency
             else:
                 kwargs["device"] = f"gpu:{gpu_id}" if self.use_gpu else "cpu"
             self._instance = PaddleOCRVL(**kwargs)

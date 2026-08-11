@@ -45,9 +45,8 @@ picks whichever engine scored higher `mean_conf()` for that entire region and
 uses its output — this is a per-region winner-take-all, not a per-word
 blend of the two engines' output.
 
-See [BENCHMARKS.md](BENCHMARKS.md) for measured evidence that PaddleOCR
-currently wins nearly every region against Tesseract on the test corpus, so
-the "combined" result is effectively identical to running PaddleOCR alone.
+See [BENCHMARKS.md](BENCHMARKS.md) for measured results. PaddleOCR-VL-1.6
+via Docker vLLM is the current primary engine (96.3% on OmniDocBench v1.6).
 
 ## `engine.engine_options`
 
@@ -56,7 +55,15 @@ Per-engine constructor kwargs, keyed by engine name:
 ```yaml
 engine:
   engine_options:
-    paddleocr: { use_gpu: true }   # false on CPU-only machines
+    paddleocr_vl:
+      use_gpu: true
+      vl_rec_backend: "vllm-server"       # delegates VLM inference to Docker container
+      vl_rec_server_url: "http://localhost:8118/v1"
+      vl_rec_max_concurrency: 8           # concurrent HTTP requests to vLLM server
+    paddleocr:
+      use_gpu: true                       # classic PP-OCR engine, fallback
 ```
 
-Currently only `use_gpu` (bool) is consumed by `PaddleOCREngine.__init__`.
+PaddleOCR-VL supports `vl_rec_backend`, `vl_rec_server_url`, and `vl_rec_max_concurrency`
+for the Docker vLLM serving path. `use_gpu` controls the local layout analysis
+model (PP-DocLayoutV3); the VLM inference runs server-side.
