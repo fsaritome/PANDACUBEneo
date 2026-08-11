@@ -1,31 +1,33 @@
-# Copy to config.yaml and adjust paths. All values shown are the defaults.
-
 watcher:
   input_root: "./input"
   output_root: "./output"
-  qc_root: "./qc"        # per-file QC sidecars, mirrored tree, kept separate from output
-  failed_root: "./failed" # files that raised during processing are moved here (mirrored tree)
+  qc_root: "./qc"
+  failed_root: "./failed"
   file_extensions: [".pdf"]
-  max_workers: 4          # 4 workers, 2 per GPU; single_instance ~3GB/worker at peak leaves headroom on each 24GB card
+  max_workers: 8           # file-level concurrency: layout analysis + PDF I/O; VLM throughput is controlled by vl_rec_max_concurrency below
   ledger_path: "./state/ledger.sqlite3"
   work_dir: "./state/work"
-  disable_passthrough: true  # RENK corpus: force full re-OCR even on files with an existing text layer
+  disable_passthrough: true
 
 engine:
-  primary: paddleocr_vl     # paddleocr | paddleocr_vl | surya | abbyy
-  secondary: null          # paddleocr-vl-only; no cross-check engine
-  strategy: single         # single primary engine, no secondary reconciliation
+  primary: paddleocr_vl
+  secondary: null
+  strategy: single
   low_confidence_word_threshold: 60.0
   low_confidence_region_fraction: 0.15
   engine_options:
-    paddleocr_vl: { use_gpu: true }
+    paddleocr_vl:
+      use_gpu: true
+      vl_rec_backend: "vllm-server"
+      vl_rec_server_url: "http://localhost:8118/v1"
+      vl_rec_max_concurrency: 8   # concurrent HTTP requests in-flight to the vLLM server
 
 fallback:
   enabled: false
-  base_url: "http://ai01:11434/v1"   # local vLLM/Ollama OpenAI-compatible endpoint
+  base_url: "http://ai01:11434/v1"
   api_key: "not-needed"
   model: "qwen2-vl"
-  apply_as_text_layer: false          # (b) default: flag for human review, don't auto-graft LLM text
+  apply_as_text_layer: false
   timeout_seconds: 120
 
 layout:
@@ -34,9 +36,9 @@ layout:
   gap_density_threshold: 0.02
 
 preprocess:
-  deskew: false               # R6: non-destructive only, defaults off
-  contrast_normalize: false   # R6: non-destructive only, defaults off
-  max_page_megapixels: 40.0   # downscale giant pages before OCR to avoid pathological runtimes
+  deskew: false
+  contrast_normalize: false
+  max_page_megapixels: 40.0
 
 languages: ["eng"]
 log_level: "INFO"
