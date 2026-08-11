@@ -38,6 +38,11 @@ class OCREngine(ABC):
     """Pluggable OCR engine. Implementations must be swappable per §5.7."""
 
     name: str = "unnamed"
+    # True for engines that need a whole page (they run their own internal
+    # layout/segmentation and return zero/garbage output on an arbitrary
+    # pre-cropped region — e.g. paddleocr_vl, confirmed via live benchmark).
+    # The page pipeline calls these once per page instead of once per region.
+    operates_on_full_page: bool = False
 
     @abstractmethod
     def recognize(self, region_image, lang_hint: list[str] | None = None) -> list[Word]:
@@ -45,6 +50,8 @@ class OCREngine(ABC):
 
         Returns word-level results with bboxes in the region image's own pixel
         coordinate space (the caller is responsible for remapping to page
-        coordinates during reassembly).
+        coordinates during reassembly) — unless `operates_on_full_page` is
+        True, in which case the caller passes the whole page image and the
+        returned bboxes are already in page coordinates.
         """
         raise NotImplementedError

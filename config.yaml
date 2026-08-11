@@ -6,18 +6,19 @@ watcher:
   qc_root: "./qc"        # per-file QC sidecars, mirrored tree, kept separate from output
   failed_root: "./failed" # files that raised during processing are moved here (mirrored tree)
   file_extensions: [".pdf"]
-  max_workers: 4          # keep low for GPU engines to avoid oversubscribing the GPU
+  max_workers: 4          # 4 workers, 2 per GPU; single_instance ~3GB/worker at peak leaves headroom on each 24GB card
   ledger_path: "./state/ledger.sqlite3"
   work_dir: "./state/work"
+  disable_passthrough: true  # RENK corpus: force full re-OCR even on files with an existing text layer
 
 engine:
-  primary: paddleocr        # tesseract | paddleocr | surya | abbyy
-  secondary: null          # GPU speed test: paddleocr-only, no CPU-bound tesseract cross-check
-  strategy: always_parallel # run secondary on every region regardless of primary confidence
+  primary: paddleocr_vl     # paddleocr | paddleocr_vl | surya | abbyy
+  secondary: null          # paddleocr-vl-only; no cross-check engine
+  strategy: single         # single primary engine, no secondary reconciliation
   low_confidence_word_threshold: 60.0
   low_confidence_region_fraction: 0.15
   engine_options:
-    paddleocr: { use_gpu: true }  # ai01 GPUs currently free (vLLM idle) — offload PaddleOCR to GPU (see docs/BENCHMARKS.md)
+    paddleocr_vl: { use_gpu: true }
 
 fallback:
   enabled: false
@@ -35,6 +36,7 @@ layout:
 preprocess:
   deskew: false               # R6: non-destructive only, defaults off
   contrast_normalize: false   # R6: non-destructive only, defaults off
+  max_page_megapixels: 40.0   # downscale giant pages before OCR to avoid pathological runtimes
 
-languages: ["eng", "deu", "fra"]
+languages: ["eng"]
 log_level: "INFO"

@@ -16,7 +16,7 @@ import yaml
 @dataclass
 class EngineConfig:
     # Which engines are active, in priority order. First is "primary".
-    primary: str = "tesseract"
+    primary: str = "paddleocr_vl"
     # Optional second engine used per §5.7 strategy below.
     secondary: str | None = None
     # "single" | "always_parallel" | "low_confidence_only"
@@ -59,6 +59,9 @@ class PreprocessConfig:
     # Only these two non-destructive operations are configurable, and both default to disabled.
     deskew: bool = False
     contrast_normalize: bool = False
+    # Hard upper bound for OCR page raster size; pages above this are downscaled
+    # before segmentation/OCR to avoid pathological runtimes on giant canvases.
+    max_page_megapixels: float = 40.0
 
 
 @dataclass
@@ -71,6 +74,10 @@ class WatcherConfig:
     max_workers: int = 4
     ledger_path: str = "./state/ledger.sqlite3"
     work_dir: str = "./state/work"
+    # When True, every file always goes through the full OCR sandwich, even if
+    # it already has a "sane" extractable text layer (e.g. a prior OCR pass).
+    # Use this to force-reOCR a corpus regardless of existing text quality.
+    disable_passthrough: bool = False
 
 
 @dataclass

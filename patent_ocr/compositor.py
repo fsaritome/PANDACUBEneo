@@ -31,15 +31,30 @@ def run_ocr_sandwich(input_pdf: Path, output_pdf: Path, config: Config, config_p
     if config_path:
         os.environ["PATENT_OCR_CONFIG_PATH"] = str(Path(config_path).resolve())
 
+    # disable_passthrough also overrides OCRmyPDF's own page-level skip-text
+    # backstop: force_ocr rasterizes and re-OCRs every page unconditionally,
+    # even ones that already carry a text layer. Without this, OCRmyPDF's
+    # default skip_text=True would silently leave already-text-bearing pages
+    # untouched regardless of our own passthrough.py check.
+    force = config.watcher.disable_passthrough
+    # GPU-backed engines can't survive OCRmyPDF's own internal page-level
+    # multiprocessing (default jobs=cpu_count()): CUDA contexts don't survive
+    # fork(), so every forked page-worker re-initializes its own independent
+    # copy of the model on the GPU instead of sharing the one already loaded
+    # in this process — with a multi-GB VLM that's an OOM waiting to happen.
+    # Force single-process (in-thread) page handling whenever the configured
+    # primary engine is GPU-backed.
+    use_gpu = bool(config.engine.engine_options.get(config.engine.primary, {}).get("use_gpu"))
     ocrmypdf.ocr(
         str(input_pdf),
         str(output_pdf),
         language=config.languages,
         deskew=config.preprocess.deskew,
-        skip_text=True,  # page-level backstop: never re-OCR pages that already have sane text
+        skip_text=not force,  # page-level backstop: never re-OCR pages that already have sane text
         clean=False,  # R6: destructive cleanup (despeckle-like) never enabled
         clean_final=False,  # R6: never replace the visible final page image
         remove_background=False,
-        force_ocr=False,
+        force_ocr=force,
+        jobs=1 if use_gpu else None,
         progress_bar=False,
     )

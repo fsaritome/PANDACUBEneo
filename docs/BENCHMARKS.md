@@ -177,6 +177,65 @@ from tesseract. This is the natural next benchmark once GPUs are free again.
   log 2>&1 & disown` to fully detach a process so it survives session
   close — see [DEPLOYMENT.md](DEPLOYMENT.md#detached-background-processes-on-ai01).
 
+## PaddleOCR-VL-1.6 via Docker vLLM server — RENK full corpus (2026-08-11)
+
+**Engine upgrade**: Tesseract dropped; pipeline migrated to PaddleOCR-VL-1.6
+(96.3% on OmniDocBench v1.6, SOTA at the time), served via the official
+PaddleOCR Docker genai-vllm-server image to resolve the static-graph
+instability issues observed with direct PaddlePaddle local inference.
+
+### Architecture
+
+```
+patent-ocr pipeline (4 workers, .venv)
+  └─ layout analysis: PP-DocLayoutV3 (local, GPU, ~300MB VRAM)
+  └─ VLM recognition: HTTP → Docker (paddleocr-genai-vllm-server:latest-nvidia-gpu)
+                                └─ vLLM serving PaddleOCR-VL-1.6-0.9B
+                                   GPU 0, ~10GB VRAM, port 8118
+```
+
+The `operates_on_full_page = True` flag on `PaddleOCRVLEngine` routes full
+page images to the engine (not pre-cropped regions), matching PaddleOCR-VL's
+expected input. Layout analysis still runs locally; only the VLM inference
+stage is offloaded to the Docker-hosted vLLM server.
+
+### RENK corpus run (663 files, full force-OCR)
+
+- **Corpus**: 663 RENK patent PDFs (`RENK/`), mix of scanned and born-digital
+- **Config**: `disable_passthrough: true` (every file re-OCR'd regardless of existing text layer), `max_workers: 4`, `engine: paddleocr_vl` with `vl_rec_backend: vllm-server`
+- **Wall time**: **63m 9s** (3,789 seconds)
+- **Files**: 654/654 done (9 already-processed from a prior partial run; total output: 662), **0 failures**
+- **VLM calls**: 14,247 successful HTTP requests to the Docker vLLM server (`HTTP 200 OK`)
+- **GPU**: Docker container used ~10GB VRAM on GPU 0; GPU 1 unused (available for concurrent jobs)
+- **Average per file**: ~5.8s wall time (including layout analysis + VLM OCR + OCRmyPDF sandwich + PDF assembly)
+
+### Key differences vs prior PaddleOCR runs
+
+| Metric | Classic PaddleOCR (GPU, 81-file run) | PaddleOCR-VL-1.6 vLLM (663-file run) |
+|---|---|---|
+| Wall time per file | ~0.8s (mostly passthrough) | **~5.8s** (all force-OCR'd) |
+| VLM architecture | CRNN + detector (PP-OCRv4) | VLM 0.9B (PP-DocLayoutV3 + PaddleOCR-VL-1.6) |
+| Table/formula support | None | Yes (structured Markdown output) |
+| Determinism | Stochastic (non-deterministic between runs) | Stable (vLLM-hosted, consistent) |
+| Failures | 0 (catch-all returns []) | 0 |
+| Confidence metric | Per-word from recognizer | Fixed 95.0 (VLM doesn't expose per-token prob) |
+
+### Setup required on ai01 (one-time)
+
+See [DEPLOYMENT.md](DEPLOYMENT.md#paddleocr-vl-docker-vllm-server) for the
+full setup walkthrough. In brief:
+
+```bash
+sudo usermod -aG docker install   # one-time, requires interactive sudo
+# new SSH session for group to take effect
+
+docker run -d --rm --gpus all --network host --name paddleocr-vllm \
+  ccr-2vdh3abv-pub.cnc.bj.baidubce.com/paddlepaddle/paddleocr-genai-vllm-server:latest-nvidia-gpu \
+  paddleocr genai_server --model_name PaddleOCR-VL-1.6-0.9B --host 0.0.0.0 --port 8118 --backend vllm
+
+pip install 'openai>=1.63'   # genai client plugin in the pipeline venv
+```
+
 ## Caveats
 
 - All confidence numbers are engine-reported self-confidence, not

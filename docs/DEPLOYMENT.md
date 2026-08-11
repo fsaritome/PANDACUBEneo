@@ -19,10 +19,12 @@ Linux server with 2× NVIDIA RTX 3090 GPUs, to make the dual-engine
 
 ```bash
 sudo apt-get update && sudo apt-get install -y \
-    tesseract-ocr tesseract-ocr-deu tesseract-ocr-fra \
     ghostscript libgl1 libglib2.0-0
 sudo apt-get install -y python3.11 python3.11-venv python3.11-dev
 ```
+
+Note: `tesseract-ocr` is no longer required — the pipeline uses PaddleOCR-VL
+via Docker vLLM server (see below). Ghostscript is still required by OCRmyPDF.
 
 `python3.11` is required (not the system default `python3.10.12`) because
 `ocrmypdf>=17` (used locally, and required for the plugin hookspec this
@@ -179,6 +181,90 @@ it does **not** kill `tesseract` subprocess children they've already
 spawned, which become orphaned and keep consuming CPU. Separately run
 `pkill -9 -f "^tesseract "` (or the equivalent for other external engine
 binaries) to fully clean up before starting a new run.
+
+## PaddleOCR-VL Docker vLLM server
+
+The primary OCR engine is PaddleOCR-VL-1.6, served via the official
+PaddleOCR Docker genai-vllm-server image. This is required; direct
+PaddlePaddle local inference is unstable (static-graph errors in production).
+
+### One-time setup
+
+**1. Add the `install` user to the `docker` group (requires interactive sudo):**
+
+```bash
+ssh ai01
+sudo usermod -aG docker install
+exit
+# Reconnect — new SSH session is required for the group change to take effect
+```
+
+**2. Pull and start the vLLM server:**
+
+```bash
+docker run -d --rm --gpus all --network host --name paddleocr-vllm \
+  ccr-2vdh3abv-pub.cnc.bj.baidubce.com/paddlepaddle/paddleocr-genai-vllm-server:latest-nvidia-gpu \
+  paddleocr genai_server --model_name PaddleOCR-VL-1.6-0.9B \
+    --host 0.0.0.0 --port 8118 --backend vllm
+```
+
+The image is ~13GB; first pull takes several minutes. Model load takes ~60s.
+Verify it's ready:
+```bash
+curl http://localhost:8118/v1/models
+```
+
+**3. Install the genai client plugin in the pipeline venv:**
+
+```bash
+cd ~/patent_ocr
+.venv/bin/pip install 'openai>=1.63'
+```
+
+This is the only client-side dependency — the `openai` package provides the
+HTTP client that `paddlex`'s genai-client engine uses to call the vLLM server.
+
+### Running the pipeline with vLLM backend
+
+Set the following in `config.yaml`:
+
+```yaml
+engine:
+  primary: paddleocr_vl
+  engine_options:
+    paddleocr_vl:
+      use_gpu: true
+      vl_rec_backend: "vllm-server"
+      vl_rec_server_url: "http://localhost:8118/v1"
+```
+
+Then run as normal:
+```bash
+.venv/bin/python -m patent_ocr.cli --config config.yaml sweep
+```
+
+### Architecture notes
+
+- Layout analysis (PP-DocLayoutV3) runs locally in the pipeline venv on GPU
+- VLM recognition (PaddleOCR-VL-1.6-0.9B) runs in the Docker container via vLLM
+- The container uses ~10GB VRAM on GPU 0; GPU 1 remains free
+- `operates_on_full_page = True` on `PaddleOCRVLEngine` — the pipeline feeds
+  whole page images (not pre-cropped regions) to this engine, matching
+  PaddleOCR-VL's expected input; word-level results are distributed back into
+  layout regions by bbox overlap afterwards
+- OCRmyPDF still owns PDF/A sandwich composition; only text production changes
+
+### Docker container management
+
+```bash
+docker ps                    # check if running
+docker stop paddleocr-vllm   # graceful stop
+docker logs paddleocr-vllm   # view server logs
+```
+
+The container uses `--rm` so it auto-removes on stop. Restart with the same
+`docker run` command above. The vLLM server holds the model in GPU memory as
+long as the container is running.
 
 ## Admin dashboard (FastAPI + React)
 
