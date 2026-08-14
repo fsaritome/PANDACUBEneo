@@ -3,12 +3,34 @@ one sidecar JSON per output file, plus a flagged-files report for the CLI.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
 import uuid
 from pathlib import Path
 from typing import Any
+
+
+def staging_dir(output_file: str | Path, work_dir: str | Path) -> Path:
+    """Per-file scratch dir for page QC and DOCX blocks, derived from the output path.
+
+    Deliberately NOT carried in an environment variable: GPU mode runs files
+    concurrently in a ThreadPoolExecutor, and threads share `os.environ`, so a
+    global `PATENT_OCR_QC_DIR` gets overwritten by whichever file starts next.
+    That silently mixed one file's pages into another's sidecar and dropped its
+    DOCX. Deriving the path from the output file keeps concurrent files apart
+    with no shared mutable state.
+    """
+    key = hashlib.sha1(str(Path(output_file)).encode("utf-8")).hexdigest()[:16]
+    return Path(work_dir) / key
+
+
+def resolve_staging_dir(explicit: str | Path | None = None) -> Path | None:
+    if explicit:
+        return Path(explicit)
+    env = os.environ.get("PATENT_OCR_QC_DIR")
+    return Path(env) if env else None
 
 
 def page_sort_key(source_name: str) -> str:
@@ -23,13 +45,12 @@ def page_sort_key(source_name: str) -> str:
     return match.group(0).zfill(8) if match else "99999999"
 
 
-def write_page_qc(qc: dict, source_name: str = "") -> None:
+def write_page_qc(qc: dict, source_name: str = "", qc_dir: str | Path | None = None) -> None:
     """Called from the OCRmyPDF plugin (possibly in a worker process) to persist
     one page's QC data. Looked up later by `aggregate_qc_dir` in the parent process."""
-    qc_dir = os.environ.get("PATENT_OCR_QC_DIR")
-    if not qc_dir:
+    path = resolve_staging_dir(qc_dir)
+    if path is None:
         return
-    path = Path(qc_dir)
     path.mkdir(parents=True, exist_ok=True)
     name = f"{page_sort_key(source_name)}_{uuid.uuid4().hex}.json"
     (path / name).write_text(json.dumps(qc), encoding="utf-8")

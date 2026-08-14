@@ -79,13 +79,17 @@ def _assign_words_to_regions(regions: list[Region], words: list) -> dict[int, li
 
 
 class PageResult:
-    def __init__(self, hocr_xml: str, text: str, qc: dict, regions_for_render: list[Region]):
+    def __init__(self, hocr_xml: str, text: str, qc: dict, regions_for_render: list[Region],
+                 page_image=None):
         self.hocr_xml = hocr_xml
         self.text = text
         self.qc = qc
         # Ordered regions with page-coordinate words, for direct PDF text-layer
         # rendering (bypasses hOCR entirely — see pdf_text_layer.py).
         self.regions_for_render = regions_for_render
+        # Full-page raster in the same coordinate space as the regions, so the
+        # DOCX export can crop figure artwork out of it.
+        self.page_image = page_image
 
 
 def _prepare_page_image(pil_image: Image.Image, config: Config) -> tuple[np.ndarray, float]:
@@ -142,7 +146,7 @@ def process_page_image(image_path, config: Config) -> PageResult:
     h, w = image.shape[:2]
 
     if config.layout.backend == "ppstructure":
-        return _process_via_ppstructure(image, config, scale, original_w, original_h)
+        return _process_via_ppstructure(image, config, scale, original_w, original_h, pil_image)
 
     layout_type, regions = segment_page(image, config.layout)
 
@@ -259,7 +263,8 @@ def process_page_image(image_path, config: Config) -> PageResult:
         "flagged": flagged,
         "fallback_fired": fallback_fired,
     }
-    return PageResult(hocr_xml, text, qc, ordered_regions)
+    page_image = image if scale == 1.0 else np.array(pil_image)
+    return PageResult(hocr_xml, text, qc, ordered_regions, page_image)
 
 
 def _region_with(region: Region, words) -> Region:
@@ -270,7 +275,7 @@ def _region_with(region: Region, words) -> Region:
 
 
 def _process_via_ppstructure(
-    image, config: Config, scale: float, original_w: int, original_h: int
+    image, config: Config, scale: float, original_w: int, original_h: int, pil_image=None
 ) -> PageResult:
     """Layout + OCR from one PP-StructureV3 pass (see layout/ppstructure.py)."""
     from patent_ocr.layout.ppstructure import parse_page
@@ -326,4 +331,7 @@ def _process_via_ppstructure(
         "flagged": any(rq.get("fallback", {}).get("flagged_for_review") for rq in region_qc),
         "fallback_fired": any(rq.get("fallback", {}).get("fired") for rq in region_qc),
     }
-    return PageResult(hocr_xml, text, qc, ordered_regions)
+    # Regions are in original page coordinates by now, so figure crops must come
+    # from a raster at that same size.
+    page_image = image if scale == 1.0 else (np.array(pil_image) if pil_image is not None else None)
+    return PageResult(hocr_xml, text, qc, ordered_regions, page_image)

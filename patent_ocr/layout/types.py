@@ -12,6 +12,8 @@ class RegionKind(str, Enum):
     COLUMN = "column"
     FIGURE = "figure"
     FORMULA = "formula"
+    TABLE = "table"
+    TITLE = "title"
     FULL_PAGE = "full_page"
     OTHER = "other"
 
@@ -29,6 +31,8 @@ class Region:
     order_index: int  # fixed reading-order position: margin -> col A -> col B -> figures
     column_index: int | None = None  # 0 = leftmost column, 1 = next, ...
     words: list[Word] = field(default_factory=list)  # populated after OCR + remap
+    # Structured representation when the layout model provides one (table HTML).
+    html: str | None = None
 
     @property
     def width(self) -> int:
