@@ -21,7 +21,7 @@ from patent_ocr import __version__
 from patent_ocr.config import Config, load_config
 from patent_ocr.docx_export import write_page_content
 from patent_ocr.page_pipeline import PageResult, process_page_image
-from patent_ocr.qc import write_page_qc
+from patent_ocr.qc import resolve_staging_dir, staging_dir, write_page_qc
 
 # One page's worth of work is identical whether ocrmypdf calls generate_hocr()
 # or generate_pdf() for it (some versions call one, some the other) — cache by
@@ -37,13 +37,26 @@ def _get_config() -> Config:
     return _CONFIG_CACHE
 
 
-def _get_page_result(input_file: Path) -> PageResult:
+def _staging_dir(options) -> Path | None:
+    """Per-file scratch dir, derived from the output path OCRmyPDF was given.
+
+    Reading it from an env var would race: GPU mode processes files
+    concurrently in threads that share os.environ.
+    """
+    output_file = getattr(options, "output_file", None)
+    if output_file:
+        return staging_dir(output_file, _get_config().work_dir)
+    return resolve_staging_dir(None)
+
+
+def _get_page_result(input_file: Path, options=None) -> PageResult:
     key = str(input_file)
     if key not in _PAGE_CACHE:
         result = process_page_image(input_file, _get_config())
+        qc_dir = _staging_dir(options) if options is not None else None
         # input_file is OCRmyPDF's page raster; its name carries the page order.
-        write_page_qc(result.qc, input_file.name)
-        write_page_content(result.regions_for_render, input_file.name)
+        write_page_qc(result.qc, input_file.name, qc_dir)
+        write_page_content(result.regions_for_render, input_file.name, result.page_image, qc_dir)
         _PAGE_CACHE[key] = result
     return _PAGE_CACHE[key]
 
@@ -72,7 +85,7 @@ class PatentOcrEngine(OcrEngine):
 
     @staticmethod
     def generate_hocr(input_file: Path, output_hocr: Path, output_text: Path, options) -> None:
-        result = _get_page_result(Path(input_file))
+        result = _get_page_result(Path(input_file), options)
         Path(output_hocr).write_text(result.hocr_xml, encoding="utf-8")
         Path(output_text).write_text(result.text, encoding="utf-8")
 
@@ -85,7 +98,7 @@ class PatentOcrEngine(OcrEngine):
 
         from patent_ocr.pdf_text_layer import render_invisible_text_pdf
 
-        result = _get_page_result(Path(input_file))
+        result = _get_page_result(Path(input_file), options)
         Path(output_text).write_text(result.text, encoding="utf-8")
         with Image.open(input_file) as im:
             width_px, height_px = im.size

@@ -30,7 +30,8 @@ _ENGINE_NAME = "ppstructure"
 # PP-DocLayout labels -> our RegionKind.
 _LABEL_KINDS = {
     "text": RegionKind.COLUMN,
-    "paragraph_title": RegionKind.COLUMN,
+    "paragraph_title": RegionKind.TITLE,
+    "doc_title": RegionKind.TITLE,
     "abstract": RegionKind.COLUMN,
     "content": RegionKind.COLUMN,
     "header": RegionKind.OTHER,
@@ -39,12 +40,12 @@ _LABEL_KINDS = {
     "footnote": RegionKind.COLUMN,
     "formula": RegionKind.FORMULA,
     "algorithm": RegionKind.FORMULA,
-    "table": RegionKind.OTHER,
+    "table": RegionKind.TABLE,
     "image": RegionKind.FIGURE,
     "figure": RegionKind.FIGURE,
     "chart": RegionKind.FIGURE,
-    "figure_title": RegionKind.COLUMN,
-    "table_title": RegionKind.COLUMN,
+    "figure_title": RegionKind.TITLE,
+    "table_title": RegionKind.TITLE,
     "seal": RegionKind.OTHER,
 }
 
@@ -67,6 +68,7 @@ def _get_pipeline(config: Config):
                 # the untouched image we sandwich under (see paddleocr_engine).
                 opts.setdefault("use_doc_orientation_classify", False)
                 opts.setdefault("use_doc_unwarping", False)
+                opts.setdefault("use_table_recognition", True)
                 try:
                     _pipeline = PPStructureV3(**opts)
                 except TypeError:
@@ -147,6 +149,39 @@ def _region_around(words: list[Word], kind: RegionKind) -> Region:
     return region
 
 
+def _attach_table_html(regions: list[Region], res) -> None:
+    """Give each TABLE region the recognized HTML for the table it covers.
+
+    `table_res_list` entries are matched to layout regions by bbox overlap
+    rather than by index, since the two lists come from different models and
+    are not guaranteed to correspond positionally.
+    """
+    tables = res.get("table_res_list") or []
+    targets = [r for r in regions if r.kind == RegionKind.TABLE]
+    if not tables or not targets:
+        return
+    for table in tables:
+        if not hasattr(table, "get"):
+            continue
+        html = table.get("pred_html") or table.get("html") or ""
+        if not html:
+            continue
+        box = table.get("table_box") or table.get("bbox")
+        best, best_overlap = None, 0
+        if box is not None and len(list(box)) >= 4:
+            tx0, ty0, tx1, ty1 = (int(v) for v in list(box)[:4])
+            for region in targets:
+                rx0, ry0, rx1, ry1 = region.bbox
+                ox = max(0, min(tx1, rx1) - max(tx0, rx0))
+                oy = max(0, min(ty1, ry1) - max(ty0, ry0))
+                if ox * oy > best_overlap:
+                    best, best_overlap = region, ox * oy
+        if best is None:
+            best = next((r for r in targets if r.html is None), None)
+        if best is not None:
+            best.html = html
+
+
 def parse_page(
     image: np.ndarray, config: Config, words: list[Word] | None = None
 ) -> tuple[LayoutType, list[Region], list[Word]]:
@@ -181,6 +216,7 @@ def parse_page(
 
     claimed: set[int] = set()
     for region in regions:
+        # Figures hold artwork, not prose; their words are recovered separately.
         if region.kind == RegionKind.FIGURE:
             continue
         for idx, word in enumerate(words):
@@ -211,4 +247,5 @@ def parse_page(
         layout_type = LayoutType.SINGLE_COLUMN
     else:
         layout_type = LayoutType.OTHER
+    _attach_table_html(ordered, res)
     return layout_type, ordered, words

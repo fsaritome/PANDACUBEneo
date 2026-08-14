@@ -16,7 +16,7 @@ from patent_ocr.docx_export import write_docx
 from patent_ocr.hashing import hash_file
 from patent_ocr.ledger import Ledger
 from patent_ocr.passthrough import analyze_text_native
-from patent_ocr.qc import aggregate_qc_dir, write_sidecar
+from patent_ocr.qc import aggregate_qc_dir, staging_dir, write_sidecar
 from patent_ocr.tree_utils import ensure_parent_dir, failed_path_for, output_path_for, qc_path_for
 
 log = logging.getLogger(__name__)
@@ -54,8 +54,8 @@ def process_file(input_file: Path, config: Config, config_path: str | None, ledg
             input_file.unlink(missing_ok=True)
             return
 
-        qc_dir = config.work_dir / uuid.uuid4().hex
-        os.environ["PATENT_OCR_QC_DIR"] = str(qc_dir)
+        qc_dir = staging_dir(output_file, config.work_dir)
+        shutil.rmtree(qc_dir, ignore_errors=True)
         try:
             run_ocr_sandwich(input_file, output_file, config, config_path)
         finally:
