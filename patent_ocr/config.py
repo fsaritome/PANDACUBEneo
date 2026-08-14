@@ -102,6 +102,10 @@ class WatcherConfig:
     # Also emit a .docx next to each output PDF, built from the same ordered
     # regions, so both formats always carry identical text.
     emit_docx: bool = False
+    # Omit detected patent margin line-numbers from the .docx. Off by default:
+    # those numbers are cited in office actions, so dropping them silently is
+    # worse than leaving them in. The searchable PDF always keeps them.
+    strip_line_numbers: bool = False
 
 
 @dataclass

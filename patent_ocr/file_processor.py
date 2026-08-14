@@ -62,7 +62,8 @@ def process_file(input_file: Path, config: Config, config_path: str | None, ledg
             if config.watcher.emit_docx:
                 try:
                     docx_path = output_file.with_suffix(".docx")
-                    if write_docx(qc_dir, docx_path, title=input_file.stem):
+                    if write_docx(qc_dir, docx_path, title=input_file.stem,
+                                  strip_line_numbers=config.watcher.strip_line_numbers):
                         log.info("docx: %s", docx_path)
                 except Exception:  # noqa: BLE001 - a docx failure must not fail the PDF
                     log.exception("docx export failed for %s", input_file)

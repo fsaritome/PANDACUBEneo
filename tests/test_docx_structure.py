@@ -92,3 +92,35 @@ def test_malformed_table_html_falls_back_without_raising(tmp_path):
     assert write_docx(tmp_path, out) is True
     text = "\n".join(p.text for p in Document(str(out)).paragraphs)
     assert "fallback text" in text
+
+
+def _claims_page(tmp_path):
+    (tmp_path / "000001_a.page.json").write_text(json.dumps({"blocks": [
+        {"kind": "margin_numbers", "text": "5 10 15 20 25 30 35"},
+        {"kind": "column", "text": "A spinal bone fastener assembly"},
+    ]}), encoding="utf-8")
+
+
+def test_line_numbers_are_kept_by_default(tmp_path):
+    pytest.importorskip("docx")
+    from docx import Document
+
+    _claims_page(tmp_path)
+    out = tmp_path / "keep.docx"
+    write_docx(tmp_path, out)
+    text = "\n".join(p.text for p in Document(str(out)).paragraphs)
+    assert "5 10 15 20 25 30 35" in text
+    assert "A spinal bone fastener assembly" in text
+
+
+def test_line_numbers_can_be_stripped(tmp_path):
+    pytest.importorskip("docx")
+    from docx import Document
+
+    _claims_page(tmp_path)
+    out = tmp_path / "stripped.docx"
+    write_docx(tmp_path, out, strip_line_numbers=True)
+    text = "\n".join(p.text for p in Document(str(out)).paragraphs)
+    assert "5 10 15 20 25 30 35" not in text
+    # Body text must survive untouched.
+    assert "A spinal bone fastener assembly" in text

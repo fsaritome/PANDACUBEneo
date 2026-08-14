@@ -6,6 +6,69 @@ real patent PDF test corpus (`PDF STUFF/`), using the production pipeline
 through OCR; 1 (`sendebericht_*.pdf`) is text-native and takes the
 passthrough path (no OCR, no confidence score).
 
+## 2026-08-14: layout backend A/B (40-document corpus sample, ai01 GPU)
+
+Random 40-file sample of `sdt_staging`, both backends run over the same page
+rasters, `paddleocr` primary with `return_word_box` in both arms.
+
+| metric | `heuristic` | `ppstructure` |
+|---|---|---|
+| chars/page | 2085 | 2086 |
+| words/page | 431 | 431 |
+| mean confidence | 98.6% | 98.6% |
+| **regions/page** | **1.2** | **17.4** |
+| sec/page | 1.38 | 2.07 |
+| empty pages | 0% | 0% |
+
+**Finding:** text extraction is *identical* — PP-StructureV3 does not read
+more text. The entire benefit is structural. The decisive number is
+regions/page: the heuristic segmenter emits a **single full-page region on
+~34 of 40 documents**, i.e. it performs no segmentation at all on real input,
+so the project's stated core value (reading order decided before recognition)
+was not being delivered for ~85% of the corpus. That only became visible at
+corpus scale; the single patent page used in earlier testing happened to be
+one of the minority where the heuristic works.
+
+Cost is ~1.5x page time. If nothing downstream consumes regions or reading
+order, that cost buys nothing.
+
+## 2026-08-14: 195-document production run (ai01 GPU, hot folder)
+
+Real backlog, live watcher, `paddleocr` + `ppstructure` + `emit_docx`.
+
+| | |
+|---|---|
+| documents / pages | 195 / 534 |
+| failures | **0** |
+| errors in log | **0** |
+| DOCX produced | 195 |
+| mean confidence | **98.35%** |
+| worst document | 90.78% |
+| flagged for review | 0 |
+| layouts | 162 `other`, 37 `two_column_margin` |
+| throughput | ~4.5 s/document |
+
+For comparison, the superseded `paddleocr_vl` run over a different corpus
+reported a mean confidence of 90.87% — and that figure was inflated by a
+hardcoded confidence constant rather than measured per-word scores.
+
+## 2026-08-14: detection threshold regression check
+
+Effect of lowering `text_det_box_thresh` from PaddleOCR's default 0.6 to 0.3,
+same 40-document sample:
+
+| metric | 0.6 | 0.3 |
+|---|---|---|
+| chars/page | 2086 | 2081 |
+| words/page | 431 | 432 |
+| empty pages | 0% | 0% |
+| mean confidence | 98.9% | 98.6% |
+
+The 0.3pt confidence drop is the *recovered* faint glyphs, which are
+low-confidence by definition. No text inflation, so no false-positive noise.
+Without this change the first two patent margin line-numbers were silently
+dropped from every affected page.
+
 ## Engine quality: Tesseract vs PaddleOCR (isolated, ai01 GPU, 29-file batch)
 
 Same batch, same machine, `strategy: always_parallel`, only `primary`/
