@@ -8,6 +8,7 @@ watcher:
   ledger_path: "./harder_test/state/ledger.sqlite3"
   work_dir: "./harder_test/state/work"
   disable_passthrough: true
+  emit_docx: true
 
 engine:
   primary: paddleocr

@@ -8,6 +8,7 @@ watcher:
   ledger_path: "./state/ledger.sqlite3"
   work_dir: "./state/work"
   disable_passthrough: true
+  emit_docx: true
 
 engine:
   primary: paddleocr

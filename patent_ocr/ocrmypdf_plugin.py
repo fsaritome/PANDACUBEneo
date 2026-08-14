@@ -19,6 +19,7 @@ from ocrmypdf.pluginspec import OcrEngine, OrientationConfidence
 
 from patent_ocr import __version__
 from patent_ocr.config import Config, load_config
+from patent_ocr.docx_export import write_page_content
 from patent_ocr.page_pipeline import PageResult, process_page_image
 from patent_ocr.qc import write_page_qc
 
@@ -40,7 +41,9 @@ def _get_page_result(input_file: Path) -> PageResult:
     key = str(input_file)
     if key not in _PAGE_CACHE:
         result = process_page_image(input_file, _get_config())
-        write_page_qc(result.qc)
+        # input_file is OCRmyPDF's page raster; its name carries the page order.
+        write_page_qc(result.qc, input_file.name)
+        write_page_content(result.regions_for_render, input_file.name)
         _PAGE_CACHE[key] = result
     return _PAGE_CACHE[key]
 
