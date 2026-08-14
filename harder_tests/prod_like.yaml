@@ -22,6 +22,7 @@ engine:
       use_textline_orientation: true
       return_word_box: true
       split_lines_into_words: true
+      text_det_box_thresh: 0.3
 
 fallback:
   enabled: false

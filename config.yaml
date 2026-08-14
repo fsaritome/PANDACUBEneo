@@ -22,6 +22,10 @@ engine:
       use_textline_orientation: true
       return_word_box: true         # real measured per-token boxes; beats the estimate below
       split_lines_into_words: true  # fallback only, when the recognizer returns no word boxes
+      # PaddleOCR's default (0.6) is too strict for faint isolated glyphs: it
+      # silently dropped the first two patent margin line-numbers on a real
+      # 300dpi scan, so numbering began at 15. Verified 0.3 recovers all seven.
+      text_det_box_thresh: 0.3
     paddleocr_vl:
       use_gpu: true
       vl_rec_backend: "vllm-server"

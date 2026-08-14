@@ -15,6 +15,7 @@ engine:
       use_gpu: true
       single_instance: true
       return_word_box: true
+      text_det_box_thresh: 0.3
 
 layout:
   backend: heuristic
