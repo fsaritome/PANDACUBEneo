@@ -12,6 +12,7 @@ from pathlib import Path
 
 from patent_ocr.compositor import run_ocr_sandwich
 from patent_ocr.config import Config
+from patent_ocr.docx_export import write_docx
 from patent_ocr.hashing import hash_file
 from patent_ocr.ledger import Ledger
 from patent_ocr.passthrough import analyze_text_native
@@ -58,6 +59,13 @@ def process_file(input_file: Path, config: Config, config_path: str | None, ledg
         try:
             run_ocr_sandwich(input_file, output_file, config, config_path)
         finally:
+            if config.watcher.emit_docx:
+                try:
+                    docx_path = output_file.with_suffix(".docx")
+                    if write_docx(qc_dir, docx_path, title=input_file.stem):
+                        log.info("docx: %s", docx_path)
+                except Exception:  # noqa: BLE001 - a docx failure must not fail the PDF
+                    log.exception("docx export failed for %s", input_file)
             summary = aggregate_qc_dir(qc_dir)
             shutil.rmtree(qc_dir, ignore_errors=True)
 

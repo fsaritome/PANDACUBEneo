@@ -9,6 +9,8 @@ watcher:
   max_workers: 8          # with vllm-server backend: workers handle layout+I/O; VLM concurrency is vl_rec_max_concurrency
   ledger_path: "./state/ledger.sqlite3"
   work_dir: "./state/work"
+  emit_docx: false        # also write a .docx beside each output PDF, built from the
+                          # same ordered regions (needs: pip install patent-ocr[docx])
 
 engine:
   primary: paddleocr        # paddleocr | paddleocr_vl | surya | abbyy

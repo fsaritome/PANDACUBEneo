@@ -99,6 +99,9 @@ class WatcherConfig:
     # it already has a "sane" extractable text layer (e.g. a prior OCR pass).
     # Use this to force-reOCR a corpus regardless of existing text quality.
     disable_passthrough: bool = False
+    # Also emit a .docx next to each output PDF, built from the same ordered
+    # regions, so both formats always carry identical text.
+    emit_docx: bool = False
 
 
 @dataclass

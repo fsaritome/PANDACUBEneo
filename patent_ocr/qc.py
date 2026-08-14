@@ -5,12 +5,25 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import uuid
 from pathlib import Path
 from typing import Any
 
 
-def write_page_qc(qc: dict) -> None:
+def page_sort_key(source_name: str) -> str:
+    """Zero-padded ordering prefix derived from OCRmyPDF's page filenames.
+
+    OCRmyPDF hands the plugin rasters named like `000003_rasterize.png`, so the
+    leading digits are the page sequence. Without this the per-page files were
+    named by uuid4 and sorted randomly, making the aggregated `pages` list -
+    and every index in `flagged_pages` - meaningless.
+    """
+    match = re.search(r"\d+", source_name or "")
+    return match.group(0).zfill(8) if match else "99999999"
+
+
+def write_page_qc(qc: dict, source_name: str = "") -> None:
     """Called from the OCRmyPDF plugin (possibly in a worker process) to persist
     one page's QC data. Looked up later by `aggregate_qc_dir` in the parent process."""
     qc_dir = os.environ.get("PATENT_OCR_QC_DIR")
@@ -18,7 +31,8 @@ def write_page_qc(qc: dict) -> None:
         return
     path = Path(qc_dir)
     path.mkdir(parents=True, exist_ok=True)
-    (path / f"{uuid.uuid4().hex}.json").write_text(json.dumps(qc), encoding="utf-8")
+    name = f"{page_sort_key(source_name)}_{uuid.uuid4().hex}.json"
+    (path / name).write_text(json.dumps(qc), encoding="utf-8")
 
 
 def aggregate_qc_dir(qc_dir: Path) -> dict[str, Any]:

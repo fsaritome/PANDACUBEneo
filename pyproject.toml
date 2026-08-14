@@ -23,6 +23,7 @@ dependencies = [
 # paddleocr>=3.2 is required for the PaddleOCRVL pipeline used by paddleocr_vl_engine.py
 paddle = ["paddleocr>=3.2", "paddlepaddle>=2.6"]
 surya = ["surya-ocr>=0.6"]
+docx = ["python-docx>=1.1"]
 dev = ["pytest>=8.0", "pytest-cov>=5.0"]
 api = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
 
