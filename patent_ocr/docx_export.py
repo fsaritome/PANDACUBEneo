@@ -138,7 +138,8 @@ def read_pages(work_dir: Path) -> list[list[dict]]:
     return pages
 
 
-def write_docx(work_dir: Path, output_path: Path, title: str = "") -> bool:
+def write_docx(work_dir: Path, output_path: Path, title: str = "",
+               strip_line_numbers: bool = False) -> bool:
     """Assemble staged pages into one .docx. Returns False if nothing was written."""
     try:
         from docx import Document
@@ -161,6 +162,9 @@ def write_docx(work_dir: Path, output_path: Path, title: str = "") -> bool:
             document.add_page_break()
         for block in blocks:
             kind = block.get("kind", "")
+
+            if strip_line_numbers and kind == RegionKind.MARGIN_NUMBERS.value:
+                continue
 
             if kind == RegionKind.TABLE.value and block.get("html"):
                 if _add_table(document, block["html"]):

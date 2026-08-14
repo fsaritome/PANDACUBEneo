@@ -9,6 +9,7 @@ watcher:
   work_dir: "./state/work"
   disable_passthrough: true
   emit_docx: true
+  strip_line_numbers: true   # omit detected patent margin line-numbers from the .docx only
 
 engine:
   primary: paddleocr

@@ -20,6 +20,7 @@ import threading
 import numpy as np
 
 from patent_ocr.config import Config
+from patent_ocr.layout.line_numbers import detect_line_numbers
 from patent_ocr.layout.types import LayoutType, Region, RegionKind
 from patent_ocr.ocr.base import Word
 
@@ -111,27 +112,15 @@ def _contains(bbox, word: Word) -> bool:
     return x0 <= cx <= x1 and y0 <= cy <= y1
 
 
-def _recover_unclaimed(
-    unclaimed: list[Word], page_width: int, config: Config
-) -> tuple[list[Region], list[Region]]:
-    """Group words no layout region claimed into (leading, trailing) regions.
+def _trailing_region(unclaimed: list[Word]) -> list[Region]:
+    """Bucket words no layout region claimed, appended after the real content.
 
-    Patent margin line-numbers land here: the trained layout model ignores
-    them entirely, so without this they would be silently dropped from the
-    output despite having been recognized correctly. Only a narrow left-margin
-    cluster earns a place at the *front* of the reading order — everything else
-    unclaimed (typically figure callout numbers bleeding out of a drawing
-    region) goes to the back, where it cannot corrupt the opening text.
+    Line numbers are handled separately by `_extract_line_numbers`, so what
+    remains here is typically figure callout numbers bleeding out of a drawing
+    region. They go to the BACK: front-loading them once put
+    '17 18 12 9 ALM ON 16 SEL COM' ahead of the document's opening text.
     """
-    if not unclaimed:
-        return [], []
-    margin_limit = config.layout.margin_max_width_fraction * page_width
-    left = [w for w in unclaimed if w.bbox[2] <= margin_limit]
-    rest = [w for w in unclaimed if w.bbox[2] > margin_limit]
-
-    leading = [_region_around(left, RegionKind.MARGIN_NUMBERS)] if left else []
-    trailing = [_region_around(rest, RegionKind.OTHER)] if rest else []
-    return leading, trailing
+    return [_region_around(unclaimed, RegionKind.OTHER)] if unclaimed else []
 
 
 def _region_around(words: list[Word], kind: RegionKind) -> Region:
@@ -182,6 +171,29 @@ def _attach_table_html(regions: list[Region], res) -> None:
             best.html = html
 
 
+def _extract_line_numbers(regions: list[Region], words: list[Word], page_width: int,
+                          config: Config):
+    """Pull a validated line-number run out of wherever it ended up.
+
+    Scans every word on the page rather than only unclaimed ones. PP-DocLayout
+    emits no region for patent line numbers, but its text regions frequently
+    extend far enough left to swallow them, and a stray number can be claimed
+    by its own small region - so restricting the search to unclaimed words
+    missed them on 2 of 4 pages of the same document, and missed the trailing
+    '35' even on a page where the rest of the run was found.
+    """
+    run = detect_line_numbers(
+        words, page_width, max_width_fraction=config.layout.margin_max_width_fraction
+    )
+    if run is None:
+        return None, set()
+    run_ids = {id(w) for w in run.words}
+    for region in regions:
+        if region.words:
+            region.words = [w for w in region.words if id(w) not in run_ids]
+    return _region_around(run.words, RegionKind.MARGIN_NUMBERS), run_ids
+
+
 def parse_page(
     image: np.ndarray, config: Config, words: list[Word] | None = None
 ) -> tuple[LayoutType, list[Region], list[Word]]:
@@ -226,17 +238,23 @@ def parse_page(
     for region in regions:
         region.words.sort(key=lambda w: (w.bbox[1], w.bbox[0]))
 
-    unclaimed = [w for i, w in enumerate(words) if i not in claimed]
-    leading, trailing = _recover_unclaimed(unclaimed, image.shape[1], config)
-    if unclaimed:
+    # Line numbers are extracted page-wide, before anything else claims them:
+    # they may be unclaimed, swallowed by a text region, or sitting in a tiny
+    # region of their own, and only the arithmetic test distinguishes them.
+    margin_region, run_ids = _extract_line_numbers(regions, words, image.shape[1], config)
+
+    unclaimed = [
+        w for i, w in enumerate(words) if i not in claimed and id(w) not in run_ids
+    ]
+    trailing = _trailing_region(unclaimed)
+    leading = [margin_region] if margin_region is not None else []
+    if unclaimed or margin_region is not None:
         log.info(
-            "ppstructure: recovered %d word(s) no layout region claimed (%d leading, %d trailing)",
-            len(unclaimed), len(leading), len(trailing),
+            "ppstructure: %d line-number(s) extracted, %d unclaimed word(s) appended",
+            len(run_ids), len(unclaimed),
         )
 
-    # Margin numbers lead the reading order, matching the heuristic segmenter;
-    # anything else unclaimed is appended so it cannot displace the real opening text.
-    ordered = leading + regions + trailing
+    ordered = leading + [r for r in regions if r.words or r.kind == RegionKind.FIGURE] + trailing
     for i, region in enumerate(ordered):
         region.order_index = i
 

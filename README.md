@@ -3,7 +3,9 @@
 Self-hosted Kofax replacement: watches a hot folder, OCRs patent PDFs (mixed
 EN/DE/FR, mixed scanned/text-native, USPTO/EPO/DPMA/WIPO), and writes them
 back as searchable PDFs with a word-level positioned invisible text layer —
-mirroring the input directory tree exactly.
+mirroring the input directory tree exactly. Optionally also emits a `.docx`
+per document, built from the same ordered regions so both formats carry
+identical text.
 
 Priority: **correctness/quality over everything else.** No destructive
 preprocessing (despeckle/denoise) is ever applied.
@@ -16,9 +18,11 @@ python -m venv .venv
 ```
 
 External dependencies (not pip-installable): Ghostscript must be on `PATH` (used
-by OCRmyPDF). On the GPU server (ai01) the primary OCR engine is PaddleOCR-VL-1.6
-served via the official Docker genai-vllm-server — see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
-for setup. GPU extras: `pip install -e .[paddle]`.
+by OCRmyPDF). The primary OCR engine is classic **PaddleOCR** (PP-OCR) with
+`return_word_box` for measured word-level boxes, and layout comes from
+PaddleOCR's trained **PP-StructureV3** model — see
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for GPU setup.
+GPU extras: `pip install -e .[paddle]`. DOCX output: `pip install -e .[docx]`.
 
 ## Configure
 
@@ -48,16 +52,25 @@ patent-ocr --config config.yaml report-flagged
    (content-hash based, via `ledger.py`'s SQLite state store). Files that
    raise during processing are moved out of `input_root` into `failed_root`
    (mirrored tree), so they aren't retried on every sweep and are easy to find.
+   Startup also reconciles rows stranded in `processing` by a previous hard
+   kill, and clears orphaned work dirs.
 2. **Passthrough** (`passthrough.py`) — text-native PDFs with sane extractable
    text are copied through untouched; anything else goes through OCR.
-3. **Layout segmentation** (`layout/segmenter.py`) — heuristic column/margin
-   detection *before* OCR, fixing reading order for the two-column-with-
-   margin-line-numbers patent layout (the #1 accuracy risk).
-4. **OCR engines** (`ocr/`) — pluggable: PaddleOCR-VL (primary, VLM-based,
-   Docker vLLM backend), PaddleOCR (classic CRNN), Surya, ABBYY (stub).
-   `OCREngine.operates_on_full_page = True` signals page-level engines that
-   receive whole pages instead of pre-cropped regions. Confidence-driven
-   secondary-engine/LLM-fallback strategy in `confidence.py` / `fallback/`.
+3. **Layout segmentation** (`layout/`) — two selectable backends via
+   `layout.backend`. `ppstructure` (default) uses PaddleOCR's trained
+   PP-DocLayout model for regions, reading order, semantic labels and
+   table/formula detection; `heuristic` is the original OpenCV projection-
+   profile column/margin detector. Reading order is decided *before* OCR,
+   fixing the two-column-with-margin-line-numbers patent layout (the #1
+   accuracy risk). Patent margin line-numbers are recovered explicitly
+   (`layout/line_numbers.py`) because the layout model does not emit a region
+   for them.
+4. **OCR engines** (`ocr/`) — pluggable: PaddleOCR (primary, PP-OCR with
+   measured word boxes), PaddleOCR-VL (VLM, Docker vLLM backend), Surya,
+   ABBYY (stub). `OCREngine.operates_on_full_page = True` signals page-level
+   engines that receive whole pages instead of pre-cropped regions.
+   Confidence-driven secondary-engine/LLM-fallback strategy in
+   `confidence.py` / `fallback/`.
 5. **Reassembly + hOCR** (`reassembly.py`, `hocr.py`) — per-region reconciliation,
    final reading order, hOCR document build.
 6. **OCRmyPDF plugin** (`ocrmypdf_plugin.py`, `pdf_text_layer.py`) — OCRmyPDF
@@ -66,7 +79,11 @@ patent-ocr --config config.yaml report-flagged
 7. **Compositor** (`compositor.py`) — invokes `ocrmypdf.ocr()`; `clean`,
    `clean_final`, `remove_background` are hard-coded `False` (never
    configurable) — only `deskew` is an opt-in non-destructive preprocessing step.
-8. **QC** (`qc.py`) — per-page QC aggregated into a `.qc.json` sidecar written
+8. **DOCX export** (`docx_export.py`, optional) — assembles the same ordered
+   regions into a Word document: tables become real Word tables, figures are
+   embedded as cropped images, titles become headings. Enable with
+   `watcher.emit_docx`.
+9. **QC** (`qc.py`) — per-page QC aggregated into a `.qc.json` sidecar written
    under `watcher.qc_root`, mirroring the input tree path-for-path (kept
    separate from `output_root`, which only ever contains OCR'd PDFs); flagged
    files are queryable via `report-flagged`.
@@ -89,13 +106,13 @@ build/deploy steps.
 ## Further documentation
 
 - [docs/OPERATIONS.md](docs/OPERATIONS.md) — reprocessing/delete-on-success
-  behavior, CLI flags, dual-engine reconciliation.
+  behavior, CLI flags, layout backends, DOCX output, dual-engine reconciliation.
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — deploying to the `ai01` GPU
   server (system deps, Python 3.11 requirement, GPU-enabled PaddlePaddle,
   vLLM GPU contention, detached background processes, admin dashboard).
 - [docs/BENCHMARKS.md](docs/BENCHMARKS.md) — measured OCR quality and speed
-  comparisons (Tesseract vs PaddleOCR, local CPU vs ai01 CPU vs ai01 GPU,
-  81-file corpus dual-engine vs GPU-only speed/quality tradeoff).
+  comparisons, including the 2026-08-14 box-geometry fixes and the
+  heuristic-vs-PP-StructureV3 layout A/B over a 40-document corpus sample.
 
 ## Author & License
 

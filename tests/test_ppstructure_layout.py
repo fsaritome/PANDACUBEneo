@@ -1,6 +1,11 @@
 from patent_ocr.config import Config
-from patent_ocr.layout.ppstructure import _contains, _recover_unclaimed, _words_from_ocr
-from patent_ocr.layout.types import RegionKind
+from patent_ocr.layout.ppstructure import (
+    _contains,
+    _extract_line_numbers,
+    _trailing_region,
+    _words_from_ocr,
+)
+from patent_ocr.layout.types import Region, RegionKind
 from patent_ocr.ocr.base import Word
 
 
@@ -42,25 +47,46 @@ def test_contains_uses_word_centre_point():
     assert not _contains((0, 0, 100, 100), word)
 
 
-def test_left_margin_words_lead_and_others_trail():
-    """Regression: figure callout numbers used to be front-loaded alongside
-    margin numbers, so drawing labels opened the document text."""
-    margin = [Word("5", (30, 100, 60, 130), 99.0, "e")]
+def test_unclaimed_words_are_appended_not_front_loaded():
+    """Regression: figure callout numbers used to be front-loaded, so drawing
+    labels opened the document text ahead of the real content."""
     callouts = [Word("17", (900, 400, 940, 430), 99.0, "e")]
-    leading, trailing = _recover_unclaimed(margin + callouts, 2000, _cfg())
-
-    assert len(leading) == 1 and leading[0].kind == RegionKind.MARGIN_NUMBERS
-    assert [w.text for w in leading[0].words] == ["5"]
-    assert len(trailing) == 1 and trailing[0].kind == RegionKind.OTHER
+    trailing = _trailing_region(callouts)
+    assert len(trailing) == 1
+    assert trailing[0].kind == RegionKind.OTHER
     assert [w.text for w in trailing[0].words] == ["17"]
 
 
-def test_no_leading_region_when_nothing_is_in_the_margin():
-    callouts = [Word("17", (900, 400, 940, 430), 99.0, "e")]
-    leading, trailing = _recover_unclaimed(callouts, 2000, _cfg())
-    assert leading == []
-    assert len(trailing) == 1
+def test_nothing_unclaimed_yields_no_region():
+    assert _trailing_region([]) == []
 
 
-def test_nothing_unclaimed_yields_nothing():
-    assert _recover_unclaimed([], 2000, _cfg()) == ([], [])
+def test_line_numbers_are_pulled_out_of_whatever_region_absorbed_them():
+    """PP-DocLayout emits no line-number region, and its text regions often
+    extend far enough left to swallow them - so extraction must scan the whole
+    page, not just words no region claimed."""
+    numbers = [Word(str(n), (250, 400 + i * 300, 275, 455 + i * 300), 99.0, "e")
+               for i, n in enumerate((5, 10, 15, 20))]
+    body = Word("spinal", (400, 400, 600, 455), 99.0, "e")
+
+    text_region = Region(kind=RegionKind.COLUMN, bbox=(200, 0, 2000, 2000), order_index=0)
+    text_region.words = numbers + [body]
+
+    margin, run_ids = _extract_line_numbers([text_region], numbers + [body], 2480, Config())
+
+    assert margin is not None
+    assert margin.kind == RegionKind.MARGIN_NUMBERS
+    assert [w.text for w in margin.words] == ["5", "10", "15", "20"]
+    # The absorbing region keeps its prose and loses only the numbers.
+    assert [w.text for w in text_region.words] == ["spinal"]
+    assert len(run_ids) == 4
+
+
+def test_extraction_leaves_regions_alone_when_there_is_no_run():
+    body = [Word("spinal", (400, 400, 600, 455), 99.0, "e")]
+    region = Region(kind=RegionKind.COLUMN, bbox=(200, 0, 2000, 2000), order_index=0)
+    region.words = list(body)
+    margin, run_ids = _extract_line_numbers([region], body, 2480, Config())
+    assert margin is None
+    assert run_ids == set()
+    assert [w.text for w in region.words] == ["spinal"]

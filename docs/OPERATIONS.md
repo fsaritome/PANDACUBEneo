@@ -36,6 +36,18 @@ Files that raise an exception during processing are moved to `failed_root`
 (mirrored directory tree) instead of being deleted or left in `input/` — so
 failures are inspectable and aren't silently retried on every sweep.
 
+## Interrupted-run reconciliation
+
+A `SIGKILL` (OOM killer, `kill -9`, host reboot) skips `process_file`'s
+`except`/`finally`, so its ledger row stays `processing` forever and the
+dashboard renders it as live work with an ever-growing elapsed time. Nothing
+used to clear these; a single killed run poisoned the dashboard permanently.
+
+`cli._startup_reconcile()` now runs at the top of **both** `run` and `sweep`:
+it marks any lingering `processing` row as `failed` with
+`interrupted: process exited before completion`, and removes orphaned
+`state/work/*` directories left behind by the same kill.
+
 ## Dual-engine reconciliation
 
 `engine.secondary` supports exactly **one** secondary engine (not an
@@ -45,8 +57,60 @@ picks whichever engine scored higher `mean_conf()` for that entire region and
 uses its output — this is a per-region winner-take-all, not a per-word
 blend of the two engines' output.
 
-See [BENCHMARKS.md](BENCHMARKS.md) for measured results. PaddleOCR-VL-1.6
-via Docker vLLM is the current primary engine (96.3% on OmniDocBench v1.6).
+See [BENCHMARKS.md](BENCHMARKS.md) for measured results. Classic **PaddleOCR**
+(PP-OCR) is the current primary engine: it has a real text detector, so it
+returns measured line/word boxes and genuine per-line confidence. PaddleOCR-VL
+does neither — it exposes only block-level boxes and a hardcoded confidence
+constant, which silently disables the low-confidence, QC-flagging and
+reconciliation machinery.
+
+## Layout backends
+
+`layout.backend` selects how regions and reading order are produced:
+
+| value | behaviour |
+|---|---|
+| `ppstructure` (default) | PaddleOCR's trained PP-DocLayout model: semantic region labels, reading order, table/formula regions |
+| `heuristic` | OpenCV projection-profile column/margin detection |
+
+Measured over a 40-document corpus sample, text extraction is identical
+between the two (2085 vs 2086 chars/page), but the heuristic segmenter
+averaged **1.2 regions/page** — a single full-page region on ~34 of 40
+documents, i.e. effectively no segmentation — versus **17.4** for
+PP-StructureV3, at ~1.5x the page time.
+
+`layout.ppstructure_words` controls where words come from under that backend:
+
+- `engine` (default) — the configured OCR engine supplies word-level boxes.
+- `builtin` — PP-StructureV3's own OCR, which is **line-level only**;
+  `PPStructureV3` rejects `return_word_box` outright, so word geometry is not
+  obtainable from it.
+
+## Patent margin line-numbers
+
+The trained layout model emits no region for patent line numbering, and its
+text regions frequently swallow the numbers. `layout/line_numbers.py`
+therefore detects them page-wide by their *arithmetic* signature — numeric
+tokens sharing a stable edge, strictly ascending, constant step (tolerating
+gaps where OCR missed one) — rather than by position alone. Position-only
+detection misread the vertical sidebar publication number `EP 1 439 083 A3`
+as line numbering and was unstable across raster resolution.
+
+`watcher.strip_line_numbers` (default `false`) omits them from the `.docx`.
+The searchable PDF **always retains them**: its text layer sits under the
+original page image, so removing them there would leave visible digits that
+cannot be selected or searched.
+
+## DOCX output
+
+`watcher.emit_docx` (default `false`) writes a `.docx` beside each output PDF,
+built from the same ordered regions so both formats carry identical text.
+Requires `pip install patent-ocr[docx]`; without it the export logs a warning
+and is skipped. DOCX failures are caught so they can never fail a good PDF.
+
+Structure is preserved where the layout model supplies it: recognized tables
+become real Word tables, figure regions are embedded as cropped images, and
+titles become headings.
 
 ## `engine.engine_options`
 
@@ -54,16 +118,31 @@ Per-engine constructor kwargs, keyed by engine name:
 
 ```yaml
 engine:
+  primary: paddleocr
   engine_options:
-    paddleocr_vl:
-      use_gpu: true
-      vl_rec_backend: "vllm-server"       # delegates VLM inference to Docker container
-      vl_rec_server_url: "http://localhost:8118/v1"
-      vl_rec_max_concurrency: 8           # concurrent HTTP requests to vLLM server
     paddleocr:
-      use_gpu: true                       # classic PP-OCR engine, fallback
+      use_gpu: true
+      single_instance: true          # one model for `languages`; avoids 3x VRAM
+      use_textline_orientation: true
+      return_word_box: true          # real measured per-token boxes
+      split_lines_into_words: true   # fallback estimate when the above is unavailable
+      text_det_box_thresh: 0.3       # see below
 ```
 
-PaddleOCR-VL supports `vl_rec_backend`, `vl_rec_server_url`, and `vl_rec_max_concurrency`
-for the Docker vLLM serving path. `use_gpu` controls the local layout analysis
-model (PP-DocLayoutV3); the VLM inference runs server-side.
+`text_det_box_thresh` — PaddleOCR's default (0.6) is too strict for faint,
+isolated glyphs. On a real 300dpi EP claims scan it silently dropped the first
+two margin line-numbers (`5`, `10`) while keeping `15`–`35`, so the visible
+numbering began at 15. `0.3` recovers all of them at a measured cost of
+0.3 percentage points of mean confidence and no text inflation.
+
+`use_doc_unwarping` / `use_doc_orientation_classify` are forced `False` and
+should stay that way: both geometrically transform the page, and PaddleOCR
+then returns boxes in that transformed space while the pipeline sandwiches
+them under the *untouched* image. Leaving unwarping on offset every box by a
+non-constant 75–95px.
+
+`preprocess.max_side_px` (default 4000) caps the raster's longest side,
+because PaddleOCR silently downsamples anything larger — capping it here keeps
+the resample under our control, where boxes are correctly rescaled back.
+`preprocess.oversample_dpi` is a *minimum* raster DPI; values above ~300 on A4
+exceed that 4000px ceiling and cause double transcoding for no gain.

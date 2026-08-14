@@ -11,6 +11,10 @@ watcher:
   work_dir: "./state/work"
   emit_docx: false        # also write a .docx beside each output PDF, built from the
                           # same ordered regions (needs: pip install patent-ocr[docx])
+  strip_line_numbers: false  # omit detected patent margin line-numbers from the .docx.
+                          # Off by default: those numbers get cited in office actions,
+                          # so dropping them silently is worse than keeping them. The
+                          # searchable PDF always retains them either way.
 
 engine:
   primary: paddleocr        # paddleocr | paddleocr_vl | surya | abbyy

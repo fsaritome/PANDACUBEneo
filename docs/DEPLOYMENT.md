@@ -76,9 +76,29 @@ In `config.yaml`:
 
 ```yaml
 engine:
+  primary: paddleocr
   engine_options:
-    paddleocr: { use_gpu: true }   # false on the local CPU-only Windows machine
+    paddleocr:
+      use_gpu: true              # false on the local CPU-only Windows machine
+      single_instance: true
+      return_word_box: true
+      text_det_box_thresh: 0.3
+
+layout:
+  backend: ppstructure
+  ppstructure_words: engine
+  ppstructure_options: { use_gpu: true, gpu_id: 0 }
 ```
+
+DOCX output additionally needs `python-docx` in the venv:
+
+```bash
+.venv/bin/pip install 'python-docx>=1.1'
+```
+
+PP-StructureV3 downloads its own models on first use
+(`PP-DocBlockLayout`, `PP-DocLayout_plus-L`, `PP-OCRv5_server_det/rec`) into
+`~/.paddlex/official_models/`.
 
 Runtime directories (`input/`, `output/`, `qc/`, `failed/`, `state/`) are
 gitignored/excluded from the deployment tarball and must be created manually
@@ -149,7 +169,7 @@ scp patent_ocr/ocr/paddleocr_engine.py ai01:~/patent_ocr/patent_ocr/ocr/paddleoc
 
 ```bash
 ssh ai01 "cd ~/patent_ocr && source .venv/bin/activate && python -m pytest tests -q"
-# Expected: 13 passed
+# Expected: 68 passed
 ```
 
 ## Detached background processes on ai01
@@ -181,6 +201,28 @@ it does **not** kill `tesseract` subprocess children they've already
 spawned, which become orphaned and keep consuming CPU. Separately run
 `pkill -9 -f "^tesseract "` (or the equivalent for other external engine
 binaries) to fully clean up before starting a new run.
+
+**`pkill -f` self-match gotcha**: `ssh ai01 'pkill -f "patent_ocr.cli"; ...'`
+kills **its own SSH session**, because the pattern matches the remote shell's
+own command line. The rest of the command silently never runs and the call
+returns exit 1. Match the PID instead:
+
+```bash
+ssh ai01 'PID=$(ps -eo pid,cmd | grep "[p]ython -m patent_ocr.cli" | awk "{print \$1}" | head -1); kill "$PID"'
+```
+
+The `[p]` bracket trick keeps `grep` from matching itself.
+
+**Graceful shutdown is not instant**: `pool.shutdown(wait=True)` blocks until
+every in-flight file finishes, which is several seconds per file. A `SIGTERM`
+can therefore appear to do nothing for 15+ seconds. If you escalate to
+`SIGKILL`, ledger rows are left in `processing` — that is now self-healing via
+`cli._startup_reconcile()` on the next `run`/`sweep`.
+
+**PowerShell quoting**: on the Windows side, `ssh ai01 '...sed "s|a|b|"...'`
+and quoted SQL string literals are routinely mangled by PowerShell before
+they reach the remote shell. Write a real script file and `scp` it instead of
+fighting the quoting.
 
 ## PaddleOCR-VL Docker vLLM server
 
