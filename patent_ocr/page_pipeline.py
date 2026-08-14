@@ -98,13 +98,18 @@ def _prepare_page_image(pil_image: Image.Image, config: Config) -> tuple[np.ndar
     w, h = pil_image.size
     pixels = w * h
     max_pixels = int(max_mp * 1_000_000)
+    scale = 1.0
     if max_pixels > 0 and pixels > max_pixels:
         scale = math.sqrt(max_pixels / pixels)
-        new_w = max(1, int(w * scale))
-        new_h = max(1, int(h * scale))
-        pil_image = pil_image.resize((new_w, new_h), Image.Resampling.LANCZOS)
-        return np.array(pil_image), new_w / w
-    return np.array(pil_image), 1.0
+    max_side = config.preprocess.max_side_px
+    if max_side > 0 and max(w, h) * scale > max_side:
+        scale = max_side / max(w, h)
+    if scale >= 1.0:
+        return np.array(pil_image), 1.0
+    new_w = max(1, int(w * scale))
+    new_h = max(1, int(h * scale))
+    pil_image = pil_image.resize((new_w, new_h), Image.Resampling.LANCZOS)
+    return np.array(pil_image), new_w / w
 
 
 def _scale_bbox(bbox: tuple[int, int, int, int], factor: float) -> tuple[int, int, int, int]:

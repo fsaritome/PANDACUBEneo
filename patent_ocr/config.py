@@ -74,6 +74,11 @@ class PreprocessConfig:
     # Hard upper bound for OCR page raster size; pages above this are downscaled
     # before segmentation/OCR to avoid pathological runtimes on giant canvases.
     max_page_megapixels: float = 40.0
+    # Hard cap on the longest raster side. PaddleOCR silently downsamples any
+    # input above 4000px/side, and small isolated marginalia (patent line
+    # numbers) get lost when it does. Downscaling here instead keeps the
+    # resample under our control, where boxes are correctly rescaled back.
+    max_side_px: int = 4000
     # Minimum DPI to rasterize pages at before OCR. Word-box precision is bounded
     # by raster resolution, so low-DPI scans produce coarse boxes no matter which
     # engine reads them. 0 leaves OCRmyPDF's own default (the page's native DPI).
