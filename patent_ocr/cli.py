@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+import logging
+import shutil
 import signal
 import sys
 import time
@@ -14,10 +16,27 @@ from patent_ocr.pipeline import WorkerPool
 from patent_ocr.qc import print_flagged_report
 from patent_ocr.watcher import backlog_sweep, start_watcher
 
+log = logging.getLogger(__name__)
+
+
+def _startup_reconcile(config) -> None:
+    """Clear state a previously killed run could not clean up itself."""
+    stale = Ledger(config.ledger_path).reconcile_interrupted()
+    if stale:
+        log.warning("reconciled %d interrupted file(s) left as 'processing'", stale)
+
+    work_dir = config.work_dir
+    orphans = [d for d in work_dir.iterdir() if d.is_dir()] if work_dir.exists() else []
+    for orphan in orphans:
+        shutil.rmtree(orphan, ignore_errors=True)
+    if orphans:
+        log.warning("removed %d orphaned work dir(s)", len(orphans))
+
 
 def _cmd_run(args) -> None:
     config = load_config(args.config)
     setup_logging(config.log_level)
+    _startup_reconcile(config)
     pool = WorkerPool(config.watcher.max_workers, args.config)
 
     observer = start_watcher(config, pool)  # live first, per R2
@@ -43,6 +62,7 @@ def _cmd_run(args) -> None:
 def _cmd_sweep(args) -> None:
     config = load_config(args.config)
     setup_logging(config.log_level)
+    _startup_reconcile(config)
     pool = WorkerPool(config.watcher.max_workers, args.config)
     backlog_sweep(config, pool, force=not args.skip_done)
     pool.shutdown(wait=True)

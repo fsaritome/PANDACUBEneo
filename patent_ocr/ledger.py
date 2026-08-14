@@ -205,6 +205,24 @@ class Ledger:
                 (error, _now(), input_path),
             )
 
+    def reconcile_interrupted(self) -> int:
+        """Fail any row still marked 'processing' from a previous run.
+
+        A SIGKILL (OOM killer, `kill -9`, host reboot) skips `process_file`'s
+        except/finally, so its row stays 'processing' forever and the dashboard
+        renders it as live work with an ever-growing elapsed time. Nothing else
+        ever clears these. Callers must invoke this at startup, before any
+        worker can legitimately set the status again.
+        """
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE files SET status='failed', "
+                "error='interrupted: process exited before completion', updated_at=? "
+                "WHERE status='processing'",
+                (_now(),),
+            )
+            return cur.rowcount or 0
+
     def iter_queued(self) -> list[str]:
         with self._connect() as conn:
             rows = conn.execute(

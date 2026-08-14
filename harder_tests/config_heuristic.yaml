@@ -1,0 +1,27 @@
+watcher:
+  input_root: "./harder_test/input"
+  output_root: "./harder_test/output"
+  qc_root: "./harder_test/qc"
+  failed_root: "./harder_test/failed"
+  ledger_path: "./harder_test/state/ledger.sqlite3"
+  work_dir: "./harder_test/state/work"
+  disable_passthrough: true
+
+engine:
+  primary: paddleocr
+  strategy: single
+  engine_options:
+    paddleocr:
+      use_gpu: true
+      single_instance: true
+      return_word_box: true
+
+layout:
+  backend: heuristic
+
+preprocess:
+  max_page_megapixels: 40.0
+  oversample_dpi: 300
+
+languages: ["eng"]
+log_level: "WARNING"

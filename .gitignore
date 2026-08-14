@@ -22,6 +22,12 @@ dashboard_dist/
 PDF STUFF/
 PDF_STUFF_2/
 
+# Test fixtures + generated OCR output are real patent documents; keep the
+# harness scripts/configs in harder_tests/ but never the PDFs or renders.
+harder_tests/*.pdf
+harder_tests/*.PDF
+harder_tests/result/
+
 
 RENK/
 RENK_OUTPUT/

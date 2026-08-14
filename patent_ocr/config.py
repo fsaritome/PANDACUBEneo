@@ -16,7 +16,7 @@ import yaml
 @dataclass
 class EngineConfig:
     # Which engines are active, in priority order. First is "primary".
-    primary: str = "paddleocr_vl"
+    primary: str = "paddleocr"
     # Optional second engine used per §5.7 strategy below.
     secondary: str | None = None
     # "single" | "always_parallel" | "low_confidence_only"
@@ -44,10 +44,22 @@ class FallbackConfig:
 
 @dataclass
 class LayoutConfig:
+    # "heuristic" = OpenCV projection profiles (below tunables apply).
+    # "ppstructure" = PaddleOCR's trained PP-DocLayout model, which also supplies
+    # reading order, semantic labels and table/formula regions, and performs OCR
+    # in the same pass (so the engine layer is bypassed for the primary read).
+    backend: str = "heuristic"
+    # Where words come from under backend="ppstructure":
+    #   "builtin" - PP-StructureV3's own OCR (line-level boxes only)
+    #   "engine"  - the configured primary engine (word-level boxes, extra pass)
+    ppstructure_words: str = "engine"
+    # Constructor kwargs for PPStructureV3 when backend="ppstructure".
+    ppstructure_options: dict = field(default_factory=dict)
     # Minimum whitespace gap width (as a fraction of page width) to count as a column gap.
     min_gap_fraction: float = 0.015
     # Maximum width (as a fraction of page width) for a leading band to be classified as
-    # a margin line-number strip rather than a body column.
+    # a margin line-number strip rather than a body column. Also bounds margin-number
+    # recovery under the ppstructure backend.
     margin_max_width_fraction: float = 0.12
     # Minimum ink-density ratio (relative to page peak) below which a column is "empty" (gap).
     gap_density_threshold: float = 0.02
@@ -62,6 +74,10 @@ class PreprocessConfig:
     # Hard upper bound for OCR page raster size; pages above this are downscaled
     # before segmentation/OCR to avoid pathological runtimes on giant canvases.
     max_page_megapixels: float = 40.0
+    # Minimum DPI to rasterize pages at before OCR. Word-box precision is bounded
+    # by raster resolution, so low-DPI scans produce coarse boxes no matter which
+    # engine reads them. 0 leaves OCRmyPDF's own default (the page's native DPI).
+    oversample_dpi: int = 0
 
 
 @dataclass

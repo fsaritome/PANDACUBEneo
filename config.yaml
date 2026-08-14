@@ -4,18 +4,24 @@ watcher:
   qc_root: "./qc"
   failed_root: "./failed"
   file_extensions: [".pdf"]
-  max_workers: 8           # file-level concurrency: layout analysis + PDF I/O; VLM throughput is controlled by vl_rec_max_concurrency below
+  max_workers: 8           # file-level concurrency: layout analysis, OCR and PDF I/O
   ledger_path: "./state/ledger.sqlite3"
   work_dir: "./state/work"
   disable_passthrough: true
 
 engine:
-  primary: paddleocr_vl
+  primary: paddleocr
   secondary: null
   strategy: single
   low_confidence_word_threshold: 60.0
   low_confidence_region_fraction: 0.15
   engine_options:
+    paddleocr:
+      use_gpu: true
+      single_instance: true      # one model for `languages` below; avoids 3x VRAM for multi-lang
+      use_textline_orientation: true
+      return_word_box: true         # real measured per-token boxes; beats the estimate below
+      split_lines_into_words: true  # fallback only, when the recognizer returns no word boxes
     paddleocr_vl:
       use_gpu: true
       vl_rec_backend: "vllm-server"
@@ -31,14 +37,31 @@ fallback:
   timeout_seconds: 120
 
 layout:
+  # Measured on 40 random corpus docs: the heuristic segmenter averaged 1.2
+  # regions/page (a single full-page region on ~34 of 40, i.e. no segmentation
+  # at all), vs 17.4 for the trained model. Text extraction is identical either
+  # way — this buys reading order and semantic regions, at ~1.5x page time.
+  backend: ppstructure
+  ppstructure_words: engine   # PPStructureV3 cannot return word boxes; the engine can
+  ppstructure_options:
+    use_gpu: true
+    gpu_id: 0
+  # Still used by the heuristic backend, and to bound margin-number recovery.
   min_gap_fraction: 0.015
   margin_max_width_fraction: 0.12
   gap_density_threshold: 0.02
 
 preprocess:
+  # Off per R6: deskew rotates the archived page image. The 40-doc corpus run
+  # showed 0% empty pages at 99% confidence without it, so it is not earning
+  # that fidelity cost here. Enable only for a visibly skewed corpus.
   deskew: false
   contrast_normalize: false
   max_page_megapixels: 40.0
+  # Minimum only: raises low-DPI scans, leaves 300+ untouched. Do not go higher —
+  # PaddleOCR hard-caps input at 4000px/side and downsamples internally, so 400dpi
+  # A4 (4678px) is transcoded twice for an effective ~342dpi and 7.6x file bloat.
+  oversample_dpi: 300
 
 languages: ["eng"]
 log_level: "INFO"

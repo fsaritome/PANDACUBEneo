@@ -18,6 +18,7 @@ from patent_ocr.hocr import build_hocr
 from patent_ocr.langid import detect_languages_for_image, detect_languages_from_text
 from patent_ocr.layout.segmenter import segment_page
 from patent_ocr.layout.types import Region, RegionKind
+from patent_ocr.ocr.base import Word
 from patent_ocr.ocr.registry import build_engine
 from patent_ocr.reassembly import assemble_page, reconcile_region, remap_words_to_page
 
@@ -87,7 +88,12 @@ class PageResult:
         self.regions_for_render = regions_for_render
 
 
-def _prepare_page_image(pil_image: Image.Image, config: Config) -> np.ndarray:
+def _prepare_page_image(pil_image: Image.Image, config: Config) -> tuple[np.ndarray, float]:
+    """Return the OCR-ready page raster and the scale applied to get there.
+
+    Callers must undo the scale before emitting boxes: downstream consumers
+    (hOCR page bbox, pdf_text_layer) work in the *original* page pixel space.
+    """
     max_mp = config.preprocess.max_page_megapixels
     w, h = pil_image.size
     pixels = w * h
@@ -97,13 +103,41 @@ def _prepare_page_image(pil_image: Image.Image, config: Config) -> np.ndarray:
         new_w = max(1, int(w * scale))
         new_h = max(1, int(h * scale))
         pil_image = pil_image.resize((new_w, new_h), Image.Resampling.LANCZOS)
-    return np.array(pil_image)
+        return np.array(pil_image), new_w / w
+    return np.array(pil_image), 1.0
+
+
+def _scale_bbox(bbox: tuple[int, int, int, int], factor: float) -> tuple[int, int, int, int]:
+    return (
+        int(round(bbox[0] * factor)),
+        int(round(bbox[1] * factor)),
+        int(round(bbox[2] * factor)),
+        int(round(bbox[3] * factor)),
+    )
+
+
+def _rescale_regions(regions: list[Region], factor: float) -> None:
+    for region in regions:
+        region.bbox = _scale_bbox(region.bbox, factor)
+        region.words = [
+            Word(
+                text=word.text,
+                bbox=_scale_bbox(word.bbox, factor),
+                confidence=word.confidence,
+                engine=word.engine,
+            )
+            for word in region.words
+        ]
 
 
 def process_page_image(image_path, config: Config) -> PageResult:
     pil_image = Image.open(image_path).convert("RGB")
-    image = _prepare_page_image(pil_image, config)
+    original_w, original_h = pil_image.size
+    image, scale = _prepare_page_image(pil_image, config)
     h, w = image.shape[:2]
+
+    if config.layout.backend == "ppstructure":
+        return _process_via_ppstructure(image, config, scale, original_w, original_h)
 
     layout_type, regions = segment_page(image, config.layout)
 
@@ -204,7 +238,9 @@ def process_page_image(image_path, config: Config) -> PageResult:
         )
 
     ordered_regions = assemble_page(regions)
-    hocr_xml = build_hocr(w, h, ordered_regions)
+    if scale != 1.0:
+        _rescale_regions(ordered_regions, 1.0 / scale)
+    hocr_xml = build_hocr(original_w, original_h, ordered_regions)
     text = "\n".join(
         " ".join(word.text for word in region.words) for region in ordered_regions if region.words
     )
@@ -226,3 +262,63 @@ def _region_with(region: Region, words) -> Region:
     probe = Region(kind=region.kind, bbox=region.bbox, order_index=region.order_index, column_index=region.column_index)
     probe.words = words
     return probe
+
+
+def _process_via_ppstructure(
+    image, config: Config, scale: float, original_w: int, original_h: int
+) -> PageResult:
+    """Layout + OCR from one PP-StructureV3 pass (see layout/ppstructure.py)."""
+    from patent_ocr.layout.ppstructure import parse_page
+
+    engine_words = None
+    engine_name = "ppstructure"
+    if config.layout.ppstructure_words == "engine":
+        engine = _get_engine(
+            config.engine.primary, **config.engine.engine_options.get(config.engine.primary, {})
+        )
+        engine_words = engine.recognize(image)
+        engine_name = config.engine.primary
+
+    layout_type, ordered_regions, words = parse_page(image, config, engine_words)
+    sample_text = " ".join(word.text for word in words[:200])
+    languages = detect_languages_from_text(sample_text, config.languages)
+
+    region_qc: list[dict] = []
+    for region in ordered_regions:
+        if region.kind == RegionKind.FIGURE:
+            region_qc.append({"kind": region.kind.value, "bbox": region.bbox, "skipped": True})
+            continue
+        fallback_info = {"fired": False}
+        if is_low_confidence(region, config.engine) and config.fallback.enabled:
+            result = run_fallback(_crop(image, region.bbox), region, config.fallback)
+            fallback_info = {
+                "fired": result.fired,
+                "applied_as_text_layer": result.applied_as_text_layer,
+                "flagged_for_review": result.flagged_for_review,
+                "reason": result.reason,
+            }
+        region_qc.append(
+            {
+                "kind": region.kind.value,
+                "bbox": region.bbox,
+                "engines_used": [engine_name],
+                "winner": engine_name if region.words else None,
+                "confidence": region_confidence_summary(region),
+                "fallback": fallback_info,
+            }
+        )
+
+    if scale != 1.0:
+        _rescale_regions(ordered_regions, 1.0 / scale)
+    hocr_xml = build_hocr(original_w, original_h, ordered_regions)
+    text = "\n".join(
+        " ".join(word.text for word in region.words) for region in ordered_regions if region.words
+    )
+    qc = {
+        "layout_type": layout_type.value,
+        "languages": languages,
+        "regions": region_qc,
+        "flagged": any(rq.get("fallback", {}).get("flagged_for_review") for rq in region_qc),
+        "fallback_fired": any(rq.get("fallback", {}).get("fired") for rq in region_qc),
+    }
+    return PageResult(hocr_xml, text, qc, ordered_regions)

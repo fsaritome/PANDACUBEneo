@@ -11,15 +11,22 @@ watcher:
   work_dir: "./state/work"
 
 engine:
-  primary: paddleocr_vl     # paddleocr | paddleocr_vl | surya | abbyy
+  primary: paddleocr        # paddleocr | paddleocr_vl | surya | abbyy
   secondary: null           # optional second engine for cross-checking
   strategy: single          # single | always_parallel | low_confidence_only
   low_confidence_word_threshold: 60.0
   low_confidence_region_fraction: 0.15
-  engine_options: {}        # per-engine kwargs; for vllm-server backend use:
+  engine_options: {}        # per-engine kwargs, e.g.:
+                            # paddleocr: { use_gpu: true, single_instance: true,
+                            #              use_textline_orientation: true,
+                            #              split_lines_into_words: true }
                             # paddleocr_vl: { use_gpu: true, vl_rec_backend: vllm-server,
                             #                vl_rec_server_url: http://localhost:8118/v1,
                             #                vl_rec_max_concurrency: 8 }
+                            # NOTE: paddleocr_vl is a VLM with no text detector — it returns
+                            # block-level boxes only, so word geometry is estimated and
+                            # confidence is a fixed constant (QC/fallback cannot fire).
+                            # Prefer paddleocr/surya when box alignment matters.
 
 fallback:
   enabled: false
@@ -30,6 +37,13 @@ fallback:
   timeout_seconds: 120
 
 layout:
+  backend: heuristic          # heuristic (OpenCV projection profiles) | ppstructure (trained
+                              # PP-DocLayout model: reading order, semantic labels, tables)
+  ppstructure_words: engine   # builtin = PPStructureV3's own line-level boxes
+                              # engine  = primary engine's word-level boxes (extra pass).
+                              # PPStructureV3 rejects return_word_box, so "builtin" can
+                              # never give word-level geometry.
+  ppstructure_options: {}     # PPStructureV3 kwargs, e.g. { use_gpu: true, gpu_id: 0 }
   min_gap_fraction: 0.015
   margin_max_width_fraction: 0.12
   gap_density_threshold: 0.02
@@ -38,6 +52,8 @@ preprocess:
   deskew: false               # R6: non-destructive only, defaults off
   contrast_normalize: false   # R6: non-destructive only, defaults off
   max_page_megapixels: 40.0   # downscale giant pages before OCR to avoid pathological runtimes
+  oversample_dpi: 0           # minimum OCR raster DPI (0 = page native). PaddleOCR caps
+                              # input at 4000px/side, so >300 on A4 is wasted transcoding.
 
 languages: ["eng", "deu", "fra"]
 log_level: "INFO"
