@@ -45,6 +45,9 @@ def run_ocr_sandwich(input_pdf: Path, output_pdf: Path, config: Config, config_p
     # Force single-process (in-thread) page handling whenever the configured
     # primary engine is GPU-backed.
     use_gpu = bool(config.engine.engine_options.get(config.engine.primary, {}).get("use_gpu"))
+    extra: dict = {}
+    if config.preprocess.oversample_dpi:
+        extra["oversample"] = config.preprocess.oversample_dpi
     ocrmypdf.ocr(
         str(input_pdf),
         str(output_pdf),
@@ -57,4 +60,5 @@ def run_ocr_sandwich(input_pdf: Path, output_pdf: Path, config: Config, config_p
         force_ocr=force,
         jobs=1 if use_gpu else None,
         progress_bar=False,
+        **extra,
     )

@@ -7,13 +7,18 @@ the rest of the pipeline works even when this engine isn't installed/selected.
 
 PaddleOCR-VL's native output is block-level markdown/text (`parsing_res_list`,
 one block per detected layout element), not word-level boxes with per-token
-confidence like Tesseract/PP-OCR. `_blocks_to_words` adapts that block-level
-content into this pipeline's per-word `Word` contract by splitting each
-block's text into whitespace tokens and distributing them proportionally
-across the block's bbox width — the same approximation `surya_engine` uses
-for engines that don't expose word-level boxes. The VLM exposes no per-token
-probability, so every recognized word gets a fixed high confidence; a region
-where the model produced nothing still surfaces as low-confidence (no words).
+confidence like Tesseract/PP-OCR — its result objects expose only
+label/bbox/content, with no text-line detector in the loop to ask for finer
+geometry. `_blocks_to_words` therefore *estimates* word boxes (see
+`ocr/wordsplit.py`): the block is divided into equal-height line strips and
+each strip is split by character width. Word geometry from this engine is
+consequently approximate; engines with a real text detector (paddleocr,
+surya) give measured line boxes and should be preferred when downstream
+consumers care about box alignment. The VLM exposes no per-token probability,
+so every recognized word gets a fixed high confidence — which also means the
+low-confidence fallback and QC thresholds cannot fire for this engine; a
+region where the model produced nothing still surfaces as low-confidence
+(no words).
 """
 from __future__ import annotations
 
@@ -23,6 +28,7 @@ import threading
 import numpy as np
 
 from patent_ocr.ocr.base import OCREngine, Word
+from patent_ocr.ocr.wordsplit import split_block_into_words
 
 log = logging.getLogger(__name__)
 
@@ -126,27 +132,16 @@ class PaddleOCRVLEngine(OCREngine):
         words: list[Word] = []
         for block in blocks:
             text = (getattr(block, "content", "") or "").strip()
-            tokens = text.split()
-            if not tokens:
+            if not text:
                 continue
-            x0, y0, x1, y1 = block.bbox
-            total_chars = sum(len(t) for t in tokens)
-            span_width = x1 - x0
-            cursor = 0
-            for tok in tokens:
-                frac_start = cursor / total_chars if total_chars else 0
-                frac_end = (cursor + len(tok)) / total_chars if total_chars else 1
-                wx0 = x0 + int(frac_start * span_width)
-                wx1 = x0 + int(frac_end * span_width)
-                words.append(
-                    Word(
-                        text=tok,
-                        bbox=(wx0, y0, wx1, y1),
-                        confidence=PaddleOCRVLEngine.DEFAULT_WORD_CONFIDENCE,
-                        engine=PaddleOCRVLEngine.name,
-                    )
+            words.extend(
+                split_block_into_words(
+                    text,
+                    tuple(block.bbox),
+                    PaddleOCRVLEngine.DEFAULT_WORD_CONFIDENCE,
+                    PaddleOCRVLEngine.name,
                 )
-                cursor += len(tok) + 1
+            )
         return words
 
     def _run(self, images: list) -> list[list[Word]]:
